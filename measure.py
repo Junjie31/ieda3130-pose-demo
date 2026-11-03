@@ -64,6 +64,10 @@ MEASURE_SPEC = [
      "side view, seated, upper arm vertical: proxy for sitting elbow height"),
 ]
 
+# Only straight-line ("dist") measures have a tape-measurable counterpart, so
+# only they can be used to calibrate cm/px.  Exported for the CLI help text.
+CALIBRATION_KEYS = [row[0] for row in MEASURE_SPEC if row[5] == "dist"]
+
 
 # --------------------------------------------------------------------------- #
 def landmarks_to_arrays(result, width: int, height: int):
@@ -108,11 +112,17 @@ def choose_side(vis: np.ndarray) -> str:
 
 
 def compute_measures(pts_px: np.ndarray, vis: np.ndarray, world: Optional[np.ndarray],
-                     known: Optional[Dict[str, float]] = None, vis_thr: float = 0.5) -> List[dict]:
+                     known: Optional[Dict[str, float]] = None,
+                     known_side: Optional[str] = None,
+                     vis_thr: float = 0.5) -> List[dict]:
     """Return a list of dict rows for both sides.
 
-    known : {"shoulder_elbow": 33.5, ...} tape-measured cm values. The mean
-            cm/px ratio from all provided keys calibrates every pixel length.
+    known      : {"shoulder_elbow": 33.5, ...} tape-measured cm values. The mean
+                 cm/px ratio from all provided keys calibrates every pixel length.
+    known_side : "L"/"R" when the tape values belong to ONE side only.  Without
+                 it, every visible side contributes a scale sample (fine for a
+                 side-view photo where the far side is hidden; on a front-view
+                 photo pass the side you actually measured).
     """
     known = known or {}
     rows = []
@@ -133,7 +143,8 @@ def compute_measures(pts_px: np.ndarray, vis: np.ndarray, world: Optional[np.nda
             out.append(dict(key=key, measure=name, pheasant_no=pno, side=side, pixels=px,
                             world_cm=wcm, calibrated_cm=None,
                             note=note if ok else "LOW VISIBILITY - " + note))
-            if key in known and kind == "dist" and ok and px > 1:
+            if (key in known and kind == "dist" and ok and px > 1
+                    and (known_side is None or side == known_side)):
                 scale_samples.append(known[key] / px)
         return out
 

@@ -11,6 +11,7 @@ Usage
 -----
   python pose_demo.py --image photo.jpg                 # single photo
   python pose_demo.py --image photo.jpg --known shoulder_elbow=33.5
+  python pose_demo.py --image photo.jpg --known shoulder_elbow=33.5 --known-side R
   python pose_demo.py --webcam                          # live camera (press s = save, q = quit)
   python pose_demo.py --video clip.mp4 --no-show        # video file, headless
 
@@ -19,11 +20,31 @@ Outputs are written to ./outputs/<name>_pose.jpg and ./outputs/<name>_measures.c
 TA: Junjie HOU (IEDA 3130, HKUST)
 """
 import argparse
+import contextlib
 import csv
 import os
 import sys
 import time
 import urllib.request
+
+# --------------------------------------------------------------------------- #
+# Quiet MediaPipe / TensorFlow-Lite C++ logging BEFORE those packages are
+# imported, otherwise students see scary-looking W0000 / inference_feedback_manager
+# lines on every run.  (Must happen before "import mediapipe".)
+# --------------------------------------------------------------------------- #
+os.environ.setdefault("GLOG_minloglevel", "2")      # 0=INFO 1=WARN 2=ERROR
+os.environ.setdefault("GLOG_logtostderr", "0")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")  # silence TFLite delegate INFO
+os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
+
+# Make console output safe for non-ASCII paths (Chinese/Japanese folder names are
+# common in students' Downloads folders).  Without this, printing a path that
+# contains e.g. Chinese characters can crash with UnicodeEncodeError on Windows.
+for _stream in (sys.stdout, sys.stderr):
+    try:  # Python >= 3.7
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:  # pragma: no cover - old Python / exotic stream
+        pass
 
 import cv2
 import numpy as np
@@ -38,8 +59,15 @@ except ImportError as e:  # pragma: no cover
         f"Original error: {e}"
     )
 
+try:  # keep the C++/absl loggers quiet for the work that happens after import
+    import absl.logging
+
+    absl.logging.set_verbosity(absl.logging.ERROR)
+except Exception:  # pragma: no cover
+    pass
+
 from measure import (
-    LANDMARK_NAMES,
+    CALIBRATION_KEYS,
     POSE_CONNECTIONS,
     compute_angles,
     compute_measures,
@@ -56,6 +84,75 @@ OUT_DIR = os.path.join(os.getcwd(), "outputs")
 
 
 # --------------------------------------------------------------------------- #
+# Quiet MediaPipe's C++ logging
+# --------------------------------------------------------------------------- #
+# MediaPipe/TFLite print glog-style lines directly to C-level file descriptor 2
+# ("INFO: Created TensorFlow Lite XNNPACK delegate...", "W0000 ...
+# inference_feedback_manager.cc", "WARNING: Logging before InitGoogle()...").
+# Environment variables are ignored because glog logs before it is initialised,
+# so we temporarily point fd 2 at os.devnull around the MediaPipe calls.  Set
+# IEDA3130_VERBOSE=1 to keep the raw logs (useful when debugging a failure).
+@contextlib.contextmanager
+def quiet_mediapipe():
+    if os.environ.get("IEDA3130_VERBOSE"):
+        yield
+        return
+    try:
+        err_fd = sys.stderr.fileno()
+    except (AttributeError, OSError, ValueError):  # stderr is not a real fd
+        yield
+        return
+    saved = devnull = None
+    try:
+        saved = os.dup(err_fd)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, err_fd)
+        yield
+    finally:
+        if saved is not None:
+            try:
+                os.dup2(saved, err_fd)
+            except OSError:
+                pass
+            os.close(saved)
+        if devnull is not None:
+            os.close(devnull)
+
+
+# --------------------------------------------------------------------------- #
+# Unicode-safe image I/O
+# --------------------------------------------------------------------------- #
+# OpenCV's imread/imwrite use the *ANSI* file API on Windows, so they fail for
+# paths containing Chinese characters, emoji, etc.  Reading/writing through
+# numpy / Python's own file API fixes that and costs nothing.
+def imread_unicode(path: str):
+    """cv2.imread replacement that also works with non-ASCII file paths."""
+    try:
+        buf = np.fromfile(path, dtype=np.uint8)
+    except (OSError, ValueError):
+        return None
+    if buf.size == 0:
+        return None
+    return cv2.imdecode(buf, cv2.IMREAD_COLOR)
+
+
+def imwrite_unicode(path: str, image) -> bool:
+    """cv2.imwrite replacement that also works with non-ASCII file paths."""
+    ext = os.path.splitext(path)[1]
+    if not ext:
+        ext, path = ".jpg", path + ".jpg"
+    ok, buf = cv2.imencode(ext, image)
+    if not ok:
+        return False
+    try:
+        with open(path, "wb") as fh:
+            fh.write(buf.tobytes())
+    except OSError:
+        return False
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # Model handling
 # --------------------------------------------------------------------------- #
 def ensure_model(variant: str = "lite") -> str:
@@ -65,7 +162,7 @@ def ensure_model(variant: str = "lite") -> str:
     if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
         return path
     url = MODEL_URLS[variant]
-    print(f"[info] downloading model ({variant}) ...\n       {url}")
+    print(f"[info] downloading model ({variant}, 5-30 MB) ...\n       {url}")
     try:
         urllib.request.urlretrieve(url, path)
     except Exception as e:
@@ -91,7 +188,20 @@ def build_landmarker(model_path: str, mode: str):
         min_tracking_confidence=0.5,
         output_segmentation_masks=False,
     )
-    return mp_vision.PoseLandmarker.create_from_options(options)
+    with quiet_mediapipe():
+        return mp_vision.PoseLandmarker.create_from_options(options)
+
+
+def detect_image(lm, frame_bgr):
+    """Run one image-mode inference with the C++ log noise suppressed."""
+    with quiet_mediapipe():
+        return lm.detect(to_mp_image(frame_bgr))
+
+
+def detect_video(lm, frame_bgr, timestamp_ms: int):
+    """Run one video-mode inference with the C++ log noise suppressed."""
+    with quiet_mediapipe():
+        return lm.detect_for_video(to_mp_image(frame_bgr), timestamp_ms)
 
 
 def to_mp_image(frame_bgr: np.ndarray):
@@ -134,14 +244,14 @@ def put_panel(frame: np.ndarray, lines, origin=(10, 25)) -> np.ndarray:
 # --------------------------------------------------------------------------- #
 # Core processing of one frame
 # --------------------------------------------------------------------------- #
-def process_result(frame_bgr, result, known=None, label=False):
+def process_result(frame_bgr, result, known=None, known_side=None, label=False):
     """Return (annotated_frame, measures_rows, angles_dict) or (frame, [], {})."""
     if not result.pose_landmarks:
         return put_panel(frame_bgr.copy(), ["No person detected"]), [], {}
     h, w = frame_bgr.shape[:2]
     pts_px, vis, world_m = landmarks_to_arrays(result, w, h)
     annotated = draw_skeleton(frame_bgr, pts_px, vis, label=label)
-    rows = compute_measures(pts_px, vis, world_m, known=known)
+    rows = compute_measures(pts_px, vis, world_m, known=known, known_side=known_side)
     angles = compute_angles(pts_px, vis)
     return annotated, rows, angles
 
@@ -150,44 +260,74 @@ def save_outputs(stem: str, annotated, rows, angles):
     os.makedirs(OUT_DIR, exist_ok=True)
     img_path = os.path.join(OUT_DIR, f"{stem}_pose.jpg")
     csv_path = os.path.join(OUT_DIR, f"{stem}_measures.csv")
-    cv2.imwrite(img_path, annotated)
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        wri = csv.writer(f)
-        wri.writerow(["measure", "pheasant_no", "side", "pixels", "world_cm", "calibrated_cm", "note"])
-        for r in rows:
-            wri.writerow([r["measure"], r["pheasant_no"], r["side"],
-                          f'{r["pixels"]:.1f}',
-                          "" if r["world_cm"] is None else f'{r["world_cm"]:.1f}',
-                          "" if r["calibrated_cm"] is None else f'{r["calibrated_cm"]:.1f}',
-                          r["note"]])
-        wri.writerow([])
-        wri.writerow(["angle_deg", "", "", "", "", "", ""])
-        for k, v in angles.items():
-            wri.writerow([k, "", "", "", "", f"{v:.1f}" if v is not None else "", ""])
-    print(f"[ok] image -> {img_path}\n[ok] csv   -> {csv_path}")
+    wrote_img = imwrite_unicode(img_path, annotated)
+    try:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            wri = csv.writer(f)
+            wri.writerow(["measure", "pheasant_no", "side", "pixels", "world_cm", "calibrated_cm", "note"])
+            for r in rows:
+                wri.writerow([r["measure"], r["pheasant_no"], r["side"],
+                              f'{r["pixels"]:.1f}',
+                              "" if r["world_cm"] is None else f'{r["world_cm"]:.1f}',
+                              "" if r["calibrated_cm"] is None else f'{r["calibrated_cm"]:.1f}',
+                              r["note"]])
+            wri.writerow([])
+            wri.writerow(["angle_deg", "", "", "", "", "", ""])
+            for k, v in angles.items():
+                wri.writerow([k, "", "", "", "", f"{v:.1f}" if v is not None else "", ""])
+    except OSError as e:
+        print(f"[error] could not write CSV: {e}")
+        return
+    if wrote_img:
+        print(f"[ok] image -> {img_path}")
+    else:
+        print(f"[error] could not write image (check permissions / disk space): {img_path}")
+    print(f"[ok] csv   -> {csv_path}")
 
 
 def print_table(rows, angles):
-    print("\n{:<34} {:>6} {:>8} {:>10} {:>12}".format("measure", "No.", "px", "world_cm", "calib_cm"))
-    print("-" * 76)
+    width = max(34, max(len(r["measure"]) for r in rows) + 2) if rows else 34
+    print("\n{:<{w}} {:>6} {:>9} {:>11} {:>10}".format(
+        "measure", "No.", "px", "world_cm", "calib_cm", w=width))
+    print("-" * (width + 40))
     for r in rows:
-        print("{:<34} {:>6} {:>8.1f} {:>10} {:>12}".format(
+        print("{:<{w}} {:>6} {:>9.1f} {:>11} {:>10}".format(
             f'{r["measure"]} ({r["side"]})', r["pheasant_no"], r["pixels"],
             "-" if r["world_cm"] is None else f'{r["world_cm"]:.1f}',
-            "-" if r["calibrated_cm"] is None else f'{r["calibrated_cm"]:.1f}'))
+            "-" if r["calibrated_cm"] is None else f'{r["calibrated_cm"]:.1f}', w=width))
     print("\nJoint angles (deg):")
     for k, v in angles.items():
         print(f"  {k:<28} {'-' if v is None else f'{v:.1f}'}")
 
 
-def parse_known(items):
-    """--known shoulder_elbow=33.5 --known elbow_fingertip=44 -> dict (cm)."""
+def parse_known(items, known_side=None):
+    """--known shoulder_elbow=33.5 --known elbow_fingertip=44 -> dict (cm).
+
+    Valid keys are the *distance* measures in measure.MEASURE_SPEC:
+      shoulder_elbow, elbow_fingertip, shoulder_wrist, hip_knee, knee_ankle
+    Bad input is reported as a normal one-line error, never as a traceback.
+    """
     known = {}
     for it in items or []:
         if "=" not in it:
-            sys.exit(f"--known expects name=cm, got {it!r}")
+            sys.exit(f"[error] --known expects NAME=CM (e.g. shoulder_elbow=33.5), got {it!r}")
         k, v = it.split("=", 1)
-        known[k.strip()] = float(v)
+        k = k.strip().lower()
+        try:
+            value = float(v)
+        except ValueError:
+            sys.exit(f"[error] --known {k}: '{v.strip()}' is not a number "
+                     f"(expected centimetres, e.g. {k}=33.5)")
+        if not np.isfinite(value) or value <= 0:
+            sys.exit(f"[error] --known {k}: the tape value must be a positive number of "
+                     f"centimetres, got {value}")
+        if k not in CALIBRATION_KEYS:
+            sys.exit(
+                f"[error] unknown --known key: {k!r}\n"
+                f"        valid keys are: {', '.join(CALIBRATION_KEYS)}\n"
+                f"        (only straight-line lengths can be used for calibration)"
+            )
+        known[k] = value
     return known
 
 
@@ -195,24 +335,38 @@ def parse_known(items):
 # Modes
 # --------------------------------------------------------------------------- #
 def run_image(args):
-    frame = cv2.imread(args.image)
+    frame = imread_unicode(args.image)
     if frame is None:
-        sys.exit(f"[error] cannot read image: {args.image}")
+        sys.exit(f"[error] cannot read image: {args.image}\n"
+                 f"        Check the path (spaces are fine, quotes help), the file extension "
+                 f"(.jpg/.png) and that the file really is a photo.")
     if max(frame.shape[:2]) > 1600:  # keep display manageable
         s = 1600 / max(frame.shape[:2])
         frame = cv2.resize(frame, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
     model = ensure_model(args.model)
     with build_landmarker(model, "image") as lm:
-        result = lm.detect(to_mp_image(frame))
-    annotated, rows, angles = process_result(frame, result, known=parse_known(args.known), label=args.label)
+        result = detect_image(lm, frame)
+    annotated, rows, angles = process_result(
+        frame, result, known=parse_known(args.known, args.known_side),
+        known_side=args.known_side, label=args.label)
     if rows:
         print_table(rows, angles)
+    else:
+        print("[warn] no person detected in this photo.\n"
+              "       Make sure the WHOLE body is in frame, the lighting is decent and\n"
+              "       nothing (bag, chair, loose clothing) hides the joints.  Results were\n"
+              "       still saved with the 'No person detected' label.")
     stem = os.path.splitext(os.path.basename(args.image))[0]
     save_outputs(stem, annotated, rows, angles)
     if not args.no_show:
-        cv2.imshow("IEDA3130 pose demo - press any key", annotated)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        try:
+            cv2.imshow("IEDA3130 pose demo - press any key", annotated)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+        except cv2.error as e:  # headless Linux / WSL / remote SSH
+            cv2.destroyAllWindows()
+            print(f"[warn] cannot open a window here ({e}); the annotated image was still saved "
+                  f"in outputs/.  Use --no-show next time.")
 
 
 def run_stream(args):
@@ -221,7 +375,7 @@ def run_stream(args):
     if not cap.isOpened():
         sys.exit(f"[error] cannot open source {src!r}. Try --camera 1 (or 0) / check camera permission.")
     model = ensure_model(args.model)
-    known = parse_known(args.known)
+    known = parse_known(args.known, args.known_side)
     fps_hist, t_prev, ts_ms, n_saved = [], time.time(), 0, 0
     with build_landmarker(model, "video") as lm:
         while True:
@@ -232,8 +386,9 @@ def run_stream(args):
             if args.video is None:
                 frame = cv2.flip(frame, 1)  # mirror webcam
             ts_ms += 33 if args.video is None else int(1000 / max(cap.get(cv2.CAP_PROP_FPS) or 30, 1))
-            result = lm.detect_for_video(to_mp_image(frame), ts_ms)
-            annotated, rows, angles = process_result(frame, result, known=known, label=args.label)
+            result = detect_video(lm, frame, ts_ms)
+            annotated, rows, angles = process_result(
+                frame, result, known=known, known_side=args.known_side, label=args.label)
             now = time.time()
             fps_hist.append(1.0 / max(now - t_prev, 1e-6)); t_prev = now
             fps = np.mean(fps_hist[-20:])
@@ -243,8 +398,14 @@ def run_stream(args):
                     lines.append(f"{k:<16} {angles[k]:6.1f} deg")
             put_panel(annotated, lines)
             if not args.no_show:
-                cv2.imshow("IEDA3130 pose demo", annotated)
-                key = cv2.waitKey(1) & 0xFF
+                try:
+                    cv2.imshow("IEDA3130 pose demo", annotated)
+                    key = cv2.waitKey(1) & 0xFF
+                except cv2.error as e:
+                    cap.release()
+                    cv2.destroyAllWindows()
+                    sys.exit(f"[error] cannot open a window here ({e}).\n"
+                             f"        Use --video clip.mp4 --no-show on headless machines.")
                 if key == ord("q") or key == 27:
                     break
                 if key == ord("s") and rows:
@@ -256,15 +417,20 @@ def run_stream(args):
 
 
 def main():
-    p = argparse.ArgumentParser(description="IEDA3130 pose estimation demo (MediaPipe Pose Landmarker)")
+    p = argparse.ArgumentParser(
+        description="IEDA3130 pose estimation demo (MediaPipe Pose Landmarker)")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--image", help="path to a photo (jpg/png)")
     g.add_argument("--video", help="path to a video file")
     g.add_argument("--webcam", action="store_true", help="use the laptop camera")
     p.add_argument("--camera", type=int, default=0, help="camera index for --webcam (default 0)")
-    p.add_argument("--model", choices=list(MODEL_URLS), default="lite", help="lite (fast) / full / heavy (accurate)")
+    p.add_argument("--model", choices=list(MODEL_URLS), default="lite",
+                   help="lite (fast) / full / heavy (accurate)")
     p.add_argument("--known", action="append", metavar="NAME=CM",
-                   help="tape-measured length in cm for calibration, e.g. --known shoulder_elbow=33.5")
+                   help="tape-measured length in cm for calibration, e.g. --known shoulder_elbow=33.5 "
+                        "(valid names: " + ", ".join(CALIBRATION_KEYS) + ")")
+    p.add_argument("--known-side", choices=["L", "R"], default=None,
+                   help="which body side the --known tape values refer to (default: all visible sides)")
     p.add_argument("--label", action="store_true", help="draw landmark indices (0-32)")
     p.add_argument("--no-show", action="store_true", help="do not open a window (headless / Colab)")
     args = p.parse_args()

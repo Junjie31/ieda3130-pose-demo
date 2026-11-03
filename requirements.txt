@@ -1,3 +1,8 @@
-mediapipe>=0.10.14
+# IEDA 3130 pose demo - only 3 packages, ~150 MB total download.
+# Verified Nov 2026 on Windows 11 with Python 3.9 / 3.11 / 3.12 / 3.13 / 3.14:
+#   mediapipe 1.2.0, opencv-python 5.0.0.93, numpy 2.5.4
+# If you have an Intel Mac, or pip cannot find a mediapipe wheel, see README
+# Troubleshooting (or use the Google Colab notebook).
+mediapipe>=0.10.14,<2
 opencv-python>=4.8
 numpy>=1.24

@@ -3,4 +3,12 @@ outputs/
 __pycache__/
 *.pyc
 .venv/
+.venv*/
+env/
+.idea/
+.vscode/
+.ipynb_checkpoints/
+.pytest_cache/
 .DS_Store
+Thumbs.db
+desktop.ini
