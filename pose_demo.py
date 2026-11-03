@@ -123,6 +123,50 @@ def quiet_mediapipe():
 
 
 # --------------------------------------------------------------------------- #
+# ASCII working directory workaround for MediaPipe on Windows
+# --------------------------------------------------------------------------- #
+# MediaPipe 1.2.0's native library (get_runfiles_dir_helper.cc) scans the
+# *ancestors* of the current working directory and converts the path to the ANSI
+# code page; if any ancestor folder contains e.g. Chinese characters the path
+# becomes "??" and the C++ CHECK fails -> the whole process exits with
+# 0xC0000409 (no Python traceback).  Very common with HKUST-style Windows
+# profiles such as C:\Users\陳大文\Desktop\...
+# Running MediaPipe with the process cwd temporarily inside a pure-ASCII folder
+# avoids the crash.  Absolute paths (model, outputs) are unaffected.
+_ASCII_CWD_WARNED = False
+
+
+@contextlib.contextmanager
+def ascii_cwd():
+    """Run the wrapped call with a cwd whose ancestors are all ASCII."""
+    global _ASCII_CWD_WARNED
+    try:
+        cwd = os.getcwd()
+    except OSError:            # e.g. the folder was deleted while running
+        yield
+        return
+    if cwd.isascii():
+        yield
+        return
+    tmp = _ascii_temp_dir()
+    if tmp is None:
+        yield
+        return
+    if not _ASCII_CWD_WARNED:
+        _ASCII_CWD_WARNED = True
+        print(f"[info] non-ASCII path detected; MediaPipe runs from an ASCII folder\n"
+              f"       ({tmp}) to avoid a Windows native-library crash.")
+    try:
+        os.chdir(tmp)
+        yield
+    finally:
+        try:
+            os.chdir(cwd)
+        except OSError:
+            pass
+
+
+# --------------------------------------------------------------------------- #
 # Unicode-safe image I/O
 # --------------------------------------------------------------------------- #
 # OpenCV's imread/imwrite use the *ANSI* file API on Windows, so they fail for
@@ -275,19 +319,19 @@ def build_landmarker(model_path: str, mode: str):
         min_tracking_confidence=0.5,
         output_segmentation_masks=False,
     )
-    with quiet_mediapipe():
+    with quiet_mediapipe(), ascii_cwd():
         return mp_vision.PoseLandmarker.create_from_options(options)
 
 
 def detect_image(lm, frame_bgr):
     """Run one image-mode inference with the C++ log noise suppressed."""
-    with quiet_mediapipe():
+    with quiet_mediapipe(), ascii_cwd():
         return lm.detect(to_mp_image(frame_bgr))
 
 
 def detect_video(lm, frame_bgr, timestamp_ms: int):
     """Run one video-mode inference with the C++ log noise suppressed."""
-    with quiet_mediapipe():
+    with quiet_mediapipe(), ascii_cwd():
         return lm.detect_for_video(to_mp_image(frame_bgr), timestamp_ms)
 
 
@@ -388,6 +432,60 @@ def posture_status(angles):
             lines.append((f"{name:<11}{val:7.1f} deg {'OK' if ok else 'adjust'}",
                           COLOUR_OK if ok else COLOUR_ADJUST))
     return lines, n_ok, n_checked
+
+
+# --------------------------------------------------------------------------- #
+# Resizable display window
+# --------------------------------------------------------------------------- #
+# cv2.imshow() draws the image at its original pixel size anchored top-left, so a
+# maximised window just shows a small picture in the corner.  The helpers below
+# letterbox every frame into the *current* window size, so resizing / maximising
+# the window really scales the video (and `f` toggles fullscreen).
+def fit_to_window(frame: np.ndarray, win_w, win_h, pad=(32, 32, 32)) -> np.ndarray:
+    """Scale `frame` to fit win_w x win_h preserving aspect ratio (letterbox)."""
+    if not win_w or not win_h or win_w <= 2 or win_h <= 2:
+        return frame
+    h, w = frame.shape[:2]
+    scale = min(float(win_w) / w, float(win_h) / h)
+    new_w = max(1, int(round(w * scale)))
+    new_h = max(1, int(round(h * scale)))
+    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=interp)
+    canvas = np.full((win_h, win_w, 3), pad, dtype=np.uint8)
+    x = (win_w - new_w) // 2
+    y = (win_h - new_h) // 2
+    canvas[y:y + new_h, x:x + new_w] = resized
+    return canvas
+
+
+def get_window_size(win_name: str):
+    """Current drawing area of an OpenCV window as (w, h), or (None, None)."""
+    try:
+        rect = cv2.getWindowImageRect(win_name)   # (x, y, w, h) on OpenCV >= 4.5
+    except Exception:
+        return None, None
+    if not rect or len(rect) != 4:
+        return None, None
+    return (rect[2], rect[3]) if rect[2] > 2 and rect[3] > 2 else (None, None)
+
+
+def open_window(win_name: str, width: int, height: int):
+    """Create a normal, resizable window with a sensible initial size."""
+    cv2.namedWindow(win_name, cv2.WINDOW_NORMAL)
+    w0 = max(480, min(int(width), 1600))
+    h0 = max(360, min(int(height), 1000))
+    cv2.resizeWindow(win_name, w0, h0)
+
+
+def toggle_fullscreen(win_name: str, want_fullscreen: bool):
+    try:
+        cv2.setWindowProperty(
+            win_name, cv2.WND_PROP_FULLSCREEN,
+            cv2.WINDOW_FULLSCREEN if want_fullscreen else cv2.WINDOW_NORMAL)
+        if not want_fullscreen:
+            cv2.resizeWindow(win_name, 1280, 800)
+    except cv2.error:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -524,9 +622,25 @@ def run_image(args):
     stem = os.path.splitext(os.path.basename(args.image))[0]
     save_outputs(stem, annotated, rows, angles)
     if not args.no_show:
+        win = "IEDA3130 pose demo - F = fullscreen, any other key = close"
         try:
-            cv2.imshow("IEDA3130 pose demo - press any key", annotated)
-            cv2.waitKey(0)
+            h0, w0 = annotated.shape[:2]
+            open_window(win, w0, h0)          # resizable; the picture is scaled to the window
+            fullscreen = False
+            while True:
+                win_w, win_h = get_window_size(win)
+                cv2.imshow(win, fit_to_window(annotated, win_w, win_h))
+                key = cv2.waitKey(30) & 0xFF
+                if key == ord("f"):
+                    fullscreen = not fullscreen
+                    toggle_fullscreen(win, fullscreen)
+                elif key != 255:               # any other key closes the image
+                    break
+                try:
+                    if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:
+                        break
+                except cv2.error:
+                    break
             cv2.destroyAllWindows()
         except cv2.error as e:  # headless Linux / WSL / remote SSH
             cv2.destroyAllWindows()
@@ -561,6 +675,13 @@ def run_stream(args):
     model = ensure_model(args.model)
     fps_hist, t_prev, ts_ms, n_saved, frame_idx = [], time.time(), 0, 0, 0
     win = "IEDA3130 pose demo"
+    fullscreen = False
+    if not args.no_show:
+        try:
+            open_window(win, 1280, 800)   # resizable; content is scaled to the window
+        except cv2.error as e:
+            sys.exit(f"[error] cannot open a window here ({e}).\n"
+                     f"        Use --video clip.mp4 --no-show --save-every 15 on headless machines.")
     with build_landmarker(model, "video") as lm:
         while True:
             if args.max_frames and frame_idx >= args.max_frames:
@@ -585,7 +706,7 @@ def run_stream(args):
                 verdict = "POSTURE OK" if n_ok == n_checked else f"ADJUST ({n_ok}/{n_checked} OK)"
             else:
                 verdict = "POSTURE: step back so the whole body is visible"
-            lines = [(f"FPS {fps:4.1f}  model={args.model}  [s]=save [q]=quit", (255, 255, 255)),
+            lines = [(f"FPS {fps:4.1f}  model={args.model}  [s]=save [f]=full [q]=quit", (255, 255, 255)),
                      (verdict, COLOUR_OK if n_checked and n_ok == n_checked else COLOUR_ADJUST),
                      ("Targets: green = OK, orange = adjust", COLOUR_NA)]
             lines += posture_lines
@@ -595,14 +716,18 @@ def run_stream(args):
                 save_outputs(f"{stem}_frame_{frame_idx:04d}", annotated, rows, angles)
             if not args.no_show:
                 try:
-                    cv2.imshow(win, annotated)
+                    win_w, win_h = get_window_size(win)
+                    cv2.imshow(win, fit_to_window(annotated, win_w, win_h))
                     key = cv2.waitKey(1) & 0xFF
                 except cv2.error as e:
                     cap.release()
                     cv2.destroyAllWindows()
                     sys.exit(f"[error] cannot open a window here ({e}).\n"
                              f"        Use --video clip.mp4 --no-show --save-every 15 on headless machines.")
-                if key == ord("q") or key == 27:
+                if key == ord("f"):
+                    fullscreen = not fullscreen
+                    toggle_fullscreen(win, fullscreen)
+                elif key == ord("q") or key == 27:
                     break
                 if key == ord("s") and rows:
                     n_saved += 1

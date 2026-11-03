@@ -25,7 +25,9 @@ on a normal laptop (Windows / macOS / Linux) or in Google Colab.
 3.14, `mediapipe 1.2.0`, `opencv-contrib-python 5.0.0.93`, `numpy 2.5.4` —
 install ≈ 30 s, first `check_env.py` run ≈ 4 s.  Lite model inference ≈ 7 ms/frame
 on CPU (≈ 145 fps without camera/display overhead); the live demo was observed at
-≈ 20–30 fps end-to-end.  Non-ASCII (Chinese) folder and file names are supported.
+≈ 20–30 fps end-to-end.  Non-ASCII (Chinese) folder, file and Windows-profile paths are
+supported — the demo automatically uses an ASCII temporary working directory around MediaPipe
+to avoid a Windows native-library limitation (see Troubleshooting).
 **Verified on Windows 11**; macOS is supported by design (one-click `.command` scripts and a
 Route A-macOS section are included) but could not be executed on the build machine, and no
 real webcam was available here — please run `check_env.py` on your own laptop and report any
@@ -90,8 +92,11 @@ python check_env.py
 **Step 6 · Run the demo**
 
 ```bat
-python pose_demo.py --webcam               REM live skeleton + posture feedback (s = save, q = quit)
-python pose_demo.py --image my_photo.jpg   REM one photo -> skeleton + measurement table
+REM live camera demo - press s to save a snapshot, f for fullscreen, q to quit
+python pose_demo.py --webcam
+
+REM one photo -> skeleton + measurement table
+python pose_demo.py --image my_photo.jpg
 ```
 
 **Even simpler: one-click scripts.** Double-click `setup_windows.bat` once (it finds Anaconda,
@@ -124,11 +129,15 @@ macOS does **not** ship Python or Conda by default, so start here just like on W
 **Step 1 · Get Conda into your shell**
 
 The Anaconda installer normally runs `conda init` for you. If `conda --version` says
-"command not found", run this once (use `/opt/anaconda3` instead of `~/anaconda3` if that is
-where Anaconda was installed), then close and reopen Terminal:
+"command not found", run this once, then close and reopen Terminal:
 
 ```bash
+# per-user Anaconda (the default .pkg location)
 ~/anaconda3/bin/conda init zsh
+# other common locations - use whichever exists:
+#   /opt/anaconda3/bin/conda init zsh          (system-wide Anaconda install)
+#   ~/opt/anaconda3/bin/conda init zsh         (Miniconda "opt" install)
+#   ~/miniconda3/bin/conda init zsh            (Miniconda per-user install)
 ```
 
 **Step 2 · Get the code**
@@ -215,9 +224,12 @@ All good. Try:  python pose_demo.py --image your_photo.jpg
 
 ### What you see in the live window (`--webcam`)
 
+The window is **resizable**: drag its corner, maximise it, or press `f` for fullscreen — the
+video is automatically scaled (letterboxed, aspect ratio preserved) to the window size.
+
 | HUD line | Meaning |
 |---|---|
-| `FPS 24.1  model=lite  [s]=save [q]=quit` | frames per second and keyboard shortcuts |
+| `FPS 24.1  model=lite  [s]=save [f]=full [q]=quit` | frames per second and keyboard shortcuts |
 | `POSTURE OK` / `ADJUST (4/6 OK)` | how many of the visible angles are inside the targets |
 | `elbow_L 92.3 deg OK` (green) | elbow internal angle ~90° (80–100°) |
 | `knee_R 101.2 deg adjust` (orange) | knee internal angle outside 80–100° |
@@ -226,7 +238,9 @@ All good. Try:  python pose_demo.py --image your_photo.jpg
 
 Green = inside the BS 7310-inspired target, orange = adjust your chair/keyboard, grey = that
 landmark is not visible enough. These are teaching guidelines, not a pass/fail assessment.
-Press `s` to save a snapshot (skeleton + HUD + CSVs) or close the window / press `q` to stop.
+Keys: `s` saves a snapshot (skeleton + HUD + CSVs), `f` toggles fullscreen, `q` / `Esc` /
+closing the window stops the camera. The photo mode window has the same resizing/fullscreen
+behaviour and closes on any key (other than `f`).
 
 ---
 
@@ -353,7 +367,7 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 | `pip install mediapipe` finds no wheel | Use Python 3.9–3.14 (64-bit). mediapipe 1.2.0 ships a `py3-none-win_amd64` wheel plus macOS Apple-Silicon and Linux x64/ARM64 wheels. **Intel Mac**: `pip install "mediapipe<0.10.22"` with Python ≤ 3.12 (this workaround was NOT verified on this machine), or use the Colab notebook. |
 | `ModuleNotFoundError: cv2` / `mediapipe` | Activate the virtual environment first, then `python -m pip install -r requirements.txt`. If you used `python -m venv`, the venv's `python` must be used to run the script. |
 | `'conda' is not recognized` / setup script says Conda not found | Install Anaconda from <https://www.anaconda.com/download> (default options), then **close and reopen** the Anaconda Prompt / run `setup_windows.bat` again. |
-| **macOS**: `conda: command not found` | Run `~/anaconda3/bin/conda init zsh` once (use `/opt/anaconda3` for a system-wide install), then close and reopen Terminal. |
+| **macOS**: `conda: command not found` | Run `~/anaconda3/bin/conda init zsh` once (use `/opt/anaconda3` or `~/opt/anaconda3` for other install locations), then close and reopen Terminal. |
 | **macOS**: camera window stays black / no camera | System Settings → Privacy & Security → Camera → enable **Terminal**, then restart Terminal. |
 | **macOS**: cannot open `setup_mac.command` ("unidentified developer") | Right-click the file → **Open**, or run `bash setup_mac.command` in Terminal; once: `chmod +x *.command`. |
 | **macOS Intel**: `pip install mediapipe` finds no wheel | `python -m pip install "mediapipe<0.10.22"` with Python ≤ 3.12; if that fails use the Colab notebook (Apple-Silicon wheels are the well-supported path). |
@@ -362,7 +376,9 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 | Model download fails (campus Wi-Fi / mainland China) | The download shows a percentage but times out after 120 s. Download the `.task` file in a browser from the URL printed on screen and save it to `models/pose_landmarker_lite.task` (or `_full`/`_heavy`). |
 | Black window / `cannot open camera 0` | Try `--camera 0` and `--camera 1`; close Zoom/Teams/Camera; Windows Settings → Privacy → Camera / macOS System Settings → Privacy → allow Terminal or VS Code. |
 | `cv2.imshow` error on Linux server / WSL / Colab | add `--no-show`; for a **photo** the annotated image and CSVs are still saved in `outputs/`. For `--video`/`--webcam` add `--save-every 15` to save frames headlessly (nothing is saved otherwise). |
-| Chinese characters in the folder/photo name | Supported: images are read/written through a Unicode-safe path, console output is UTF-8, and if the project itself sits in a non-ASCII folder the model is automatically copied to an ASCII temp folder for MediaPipe. |
+| Chinese characters anywhere in the path (photo, project folder, **or Windows user profile**) | Supported. Images use a Unicode-safe read/write path; console output is UTF-8; when the project sits in a non-ASCII folder the model is copied to an ASCII temp path; and when a **parent** of the working directory is non-ASCII (e.g. `C:\Users\陳大文\Desktop\...`) MediaPipe is run from an ASCII temp working directory, which avoids a Windows native-library crash. You will see two `[info]` lines about this on the first run — that is expected. |
+| Window shows the video small in the top-left corner after maximising (old versions) | Fixed: the live/photo windows are resizable and the picture now scales to the window size (aspect ratio preserved, with letterbox bars). Press `f` for fullscreen. |
+| `check_env.py` exits silently with a negative code (e.g. `-1073740791` / `0xC0000409`), no message | This is the MediaPipe non-ASCII-cwd crash described above; clearly print the path (`pwd` / `cd`), move the project to `C:\IEDA3130` if the automatic ASCII-work-dir fallback cannot be used, or run the command from an ASCII folder with absolute paths. |
 | "No person detected" | whole body must be visible; improve lighting; try `--model full`. A warning is printed and an annotated image is still saved. |
 | Rows marked `!` in the table | at least one landmark had visibility < 0.5 (e.g. legs behind a desk). Do not record those values; re-take the photo. |
 | `[error] unknown --known key` | use one of the five valid straight-line names printed in the error message. |
