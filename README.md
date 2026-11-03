@@ -238,6 +238,8 @@ video is automatically scaled (letterboxed, aspect ratio preserved) to the windo
 
 Green = inside the BS 7310-inspired target, orange = adjust your chair/keyboard, grey = that
 landmark is not visible enough. These are teaching guidelines, not a pass/fail assessment.
+The HUD is deliberately compact and scales with the frame size (about a fifth of the picture),
+so it does not hide the subject.
 Keys: `s` saves a snapshot (skeleton + HUD + CSVs), `f` toggles fullscreen, `q` / `Esc` /
 closing the window stops the camera. The photo mode window has the same resizing/fullscreen
 behaviour and closes on any key (other than `f`).

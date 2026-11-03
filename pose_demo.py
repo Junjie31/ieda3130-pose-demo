@@ -363,21 +363,34 @@ def draw_skeleton(frame: np.ndarray, pts_px: np.ndarray, vis: np.ndarray,
     return out
 
 
-def put_panel(frame: np.ndarray, lines, origin=(10, 25), line_h: int = 22,
-              font_scale: float = 0.55):
-    """Draw a translucent HUD panel.  `lines` items are str or (str, (B, G, R))."""
-    x, y = origin
+def put_panel(frame: np.ndarray, lines, origin=None, line_h=None, font_scale=None):
+    """Draw a compact translucent HUD panel.
+
+    `lines` items are str or (str, (B, G, R)).  The panel automatically scales
+    with the frame height, so it covers roughly a fifth of a 720p frame and stays
+    out of the way of the skeleton instead of hiding the subject.
+    """
+    h, w = frame.shape[:2]
+    if font_scale is None:
+        font_scale = max(0.30, min(0.80, 0.42 * h / 720.0))
+    if line_h is None:
+        line_h = max(12, int(round(font_scale * 36)))
     font = cv2.FONT_HERSHEY_SIMPLEX
     parsed = [(item, (255, 255, 255)) if isinstance(item, str) else (item[0], item[1])
               for item in lines]
     texts = [t for t, _ in parsed]
     if not texts:
         return frame
+    pad_x = max(4, int(round(font_scale * 14)))
+    pad_y = max(3, int(round(font_scale * 9)))
+    if origin is None:
+        origin = (pad_x + max(2, int(round(font_scale * 6))), line_h + pad_y + 2)
+    x, y = origin
     widths = [cv2.getTextSize(t, font, font_scale, 1)[0][0] for t in texts]
-    w_px = max(widths) + 36
-    h_px = line_h * len(texts) + 14
-    h, w = frame.shape[:2]
-    x1, y1 = max(0, x - 10), max(0, y - 20)
+    w_px = max(widths) + 2 * pad_x
+    h_px = line_h * len(texts) + 2 * pad_y
+    x1 = max(0, x - pad_x)
+    y1 = max(0, y - line_h + 2)
     x2, y2 = min(w, x1 + w_px), min(h, y1 + h_px)
     overlay = frame.copy()
     cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 0), -1)

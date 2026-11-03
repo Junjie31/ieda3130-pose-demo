@@ -191,11 +191,29 @@ def test_window_auto_scale():
         shutil.rmtree(tmp_out, ignore_errors=True)
 
 
+def test_hud_panel_is_compact():
+    """The HUD must stay small relative to the frame at every webcam resolution."""
+    lines = [("FPS 57.1  model=full  [s]=save [f]=full [q]=quit", (255, 255, 255)),
+             ("ADJUST (1/6 OK)", (0, 165, 255)),
+             ("Targets: green = OK, orange = adjust", (170, 170, 170))]
+    lines += [("elbow_L  178.7 deg adjust", (0, 165, 255))] * 6
+    for w, h in ((1000, 667), (1280, 720), (1920, 1080)):
+        base = np.full((h, w, 3), 128, dtype=np.uint8)
+        out = pose_demo.put_panel(base.copy(), lines)
+        diff = np.abs(out.astype(int) - base.astype(int)).sum(axis=2) > 0
+        ys, xs = np.where(diff)
+        bw, bh = xs.max() - xs.min() + 1, ys.max() - ys.min() + 1
+        assert bw / w <= 0.28, (w, h, bw)
+        assert bh / h <= 0.24, (w, h, bh)
+
+
 if __name__ == "__main__":
     test_posture_status_rules()
     print("PASS posture_status rules (color-coded HUD decisions)")
     test_fit_to_window()
     print("PASS fit_to_window letterboxing / auto-scale maths")
+    test_hud_panel_is_compact()
+    print("PASS compact HUD footprint (<=28% x <=24% of frame at 1000/1280/1920 px wide)")
     test_live_branch_on_fake_camera()
     print("PASS live --webcam code path on a simulated camera (no hardware needed)")
     test_window_auto_scale()
