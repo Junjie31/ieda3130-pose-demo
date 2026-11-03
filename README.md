@@ -9,9 +9,10 @@ landmarks that we measured **by hand with an anthropometer in Lab 2**
 (Anthropometry: Workstation Design), and how to judge a seated posture against
 the **BS 7310** criterion (elbow ≈ 90°, forearm horizontal at keyboard height).
 
-It is intentionally small: **4 short Python files, 3 pip packages, no GPU, no
-compilation** (the 4th file is an optional unit test). Everything runs on a
-normal laptop (Windows / macOS / Linux) or in Google Colab.
+It is intentionally small: **4 short Python files, 3 direct pip requirements, no
+GPU, no compiler** (the 4th file is an optional unit test; pip installs ≈ 20
+packages / ≈ 350 MB of disk transitively, all pre-built wheels). Everything runs
+on a normal laptop (Windows / macOS / Linux) or in Google Colab.
 
 | | OpenPose (CMU, 2017) | This demo (MediaPipe Pose Landmarker) |
 |---|---|---|
@@ -21,10 +22,12 @@ normal laptop (Windows / macOS / Linux) or in Google Colab.
 | Licence | non-commercial research | Apache-2.0 |
 
 **Status (verified Nov 2026 on Windows 11):** Python 3.9 / 3.11 / 3.12 / 3.13 /
-3.14, `mediapipe 1.2.0`, `opencv-python 5.0.0.93`, `numpy 2.5.4` — install
-≈ 30 s (~150 MB download), first `check_env.py` run ≈ 4 s.  Lite model
-inference ≈ 7 ms/frame on CPU (≈ 145 fps without camera/display overhead).
-Non-ASCII (Chinese) folder and file names are supported.
+3.14, `mediapipe 1.2.0`, `opencv-contrib-python 5.0.0.93`, `numpy 2.5.4` —
+install ≈ 30 s, first `check_env.py` run ≈ 4 s.  Lite model inference ≈ 7 ms/frame
+on CPU (≈ 145 fps without camera/display overhead); the live demo was observed at
+≈ 20–30 fps end-to-end.  Non-ASCII (Chinese) folder and file names are supported.
+Not verified in this environment: Intel-Mac / Apple-Silicon specifics and a real
+webcam (build machine had none) — please run `check_env.py` on your own laptop.
 
 ---
 
@@ -77,20 +80,21 @@ Colab — same code, runs in the browser.
 ## 2 · What the demo outputs · 输出说明
 
 Running `python pose_demo.py --image seated_side.jpg --known shoulder_elbow=33.5 --known-side R` prints
+(real output; trimmed here by a few rows)
 
 ```
-measure                               No.        px    world_cm   calib_cm
---------------------------------------------------------------------------
-Shoulder-elbow length (L)              22      81.0        27.9       32.4
-Elbow-fingertip length (L)             23     101.2        31.0       40.5
-Shoulder-wrist length (proxy 25) (L)     25     157.1        51.5       62.9
-Hip-knee length (proxy 13/14) (L)      13     116.7        35.7       46.7
-Knee-ankle length (proxy 16) (L)       16     113.4        43.4       45.4
-Shoulder above hip (vertical) (L)      10     151.0        50.9       60.4
-Eye above hip (vertical) (L)            9     202.0        66.1       80.9
-Elbow above hip (vertical) (L)         11     150.0        50.6       60.0
-...
-Shoulder-elbow length (R)              22      83.7        28.6       33.5
+measure                                 No.        px    world_cm   calib_cm
+----------------------------------------------------------------------------
+Shoulder-elbow length (L)                22      81.0        27.9       32.4
+Elbow-fingertip length (L)               23     101.2        31.0       40.5
+Shoulder-wrist length (proxy 25) (L)       25     157.1        51.5       62.9
+Hip-knee length (proxy 13/14) (L)        13     116.7        35.7       46.7
+Knee-ankle length (proxy 16) (L)         16     113.4        43.4       45.4
+Shoulder above hip (vertical) (L)        10     151.0        50.9       60.4
+Eye above hip (vertical) (L)              9     202.0        66.1       80.9
+Elbow above hip (vertical) (L)           11     150.0        50.6       60.0
+Shoulder-elbow length (R)                22      83.7        28.6       33.5
+Elbow-fingertip length (R)               23      95.4        31.8       38.2
 ...
 Joint angles (deg):
   elbow_flexion_L              172.1
@@ -101,12 +105,19 @@ Joint angles (deg):
   hip_flexion_R                 95.1
   trunk_lean_deg                 2.2
   neck_forward_deg              45.0
-[ok] image -> .../outputs/seated_side_pose.jpg
-[ok] csv   -> .../outputs/seated_side_measures.csv
+[ok] image    -> <project>/outputs/seated_side_pose.jpg
+[ok] measures -> <project>/outputs/seated_side_measures.csv
+[ok] angles   -> <project>/outputs/seated_side_angles.csv
 ```
 
-and saves `outputs/<name>_pose.jpg` (skeleton overlay) and
-`outputs/<name>_measures.csv` (UTF-8, opens in Excel).
+Rows whose landmarks are not visible enough (visibility < 0.5) are marked with
+`!` after the measure name and a warning below the table — **never record those
+rows**. `-` means "cannot be computed/calibrated", not zero.
+
+The demo always writes into `<project>/outputs/` (next to the code, not next to
+your shell):
+`<name>_pose.jpg` (skeleton overlay), `<name>_measures.csv` (length table) and
+`<name>_angles.csv` (joint angles). All three are UTF-8 and open in Excel.
 
 Three length columns, three different ideas:
 
@@ -151,11 +162,19 @@ python pose_demo.py --image side.jpg --known shoulder_elbow=33.5 --known elbow_f
 ```
 
 * In a **side-view** photo the far side is usually hidden, so one `--known` value
-  is enough.
-* In a **front-view** photo both arms are visible and both pixel lengths are
-  used; if you measured only one arm, add `--known-side R` (or `L`) so the scale
-  comes from that arm only.  Bad values (`abc`, `0`, `-5`, misspelled names) are
-  rejected with a one-line error instead of a Python traceback.
+  is enough and the taped segment comes out exactly at your tape value.
+* In a **front-view** photo both arms are visible. Without `--known-side` the
+  two sides' pixel lengths are averaged before the cm/px ratio is formed, so the
+  taped segment will be close to but not exactly your tape value. If you
+  measured only one arm, always add `--known-side R` (or `L`) so the scale comes
+  from that arm only.
+* With several `--known` values the mean cm/px ratio over the provided segments
+  is used; more values → steadier scale.
+* Bad input (`abc`, `0`, `-5`, `999`, misspelled names) is rejected with a
+  one-line error and exit code 1 instead of a Python traceback.
+* Calibration only works for segments that are roughly parallel to the image
+  plane in the photo (side/front view); a foreshortened limb gives a wrong
+  scale.
 
 ---
 
@@ -169,7 +188,8 @@ python pose_demo.py --image side.jpg --known shoulder_elbow=33.5 --known elbow_f
 
 Flags: `--model full|heavy` (more accurate, slower) · `--label` (print landmark
 indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
-`--video clip.mp4` · `--known-side L|R`.
+`--video clip.mp4` · `--known-side L|R` · `--save-every N` / `--max-frames N`
+(video/webcam: auto-save every Nth frame, stop after N frames — useful headless).
 
 ---
 
@@ -177,17 +197,19 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 
 | Symptom | Fix |
 |---|---|
-| `pip install mediapipe` finds no wheel | Use Python 3.9–3.14 (64-bit). mediapipe 1.2.0 ships a `py3-none-win_amd64` wheel plus macOS Apple-Silicon and Linux x64/ARM64 wheels. **Intel Mac**: `pip install "mediapipe<0.10.22"` with Python ≤ 3.12, or use the Colab notebook. |
+| `pip install mediapipe` finds no wheel | Use Python 3.9–3.14 (64-bit). mediapipe 1.2.0 ships a `py3-none-win_amd64` wheel plus macOS Apple-Silicon and Linux x64/ARM64 wheels. **Intel Mac**: `pip install "mediapipe<0.10.22"` with Python ≤ 3.12 (this workaround was NOT verified on this machine), or use the Colab notebook. |
 | `ModuleNotFoundError: cv2` / `mediapipe` | Activate the virtual environment first, then `python -m pip install -r requirements.txt`. If you used `python -m venv`, the venv's `python` must be used to run the script. |
-| Model download fails (campus Wi-Fi / mainland China) | Download the `.task` file in a browser from the URL printed on screen and save it to `models/pose_landmarker_lite.task` (or `_full`/`_heavy`). |
-| Black window / `cannot open source 0` | macOS: System Settings → Privacy → Camera → allow Terminal/VS Code. Try `--camera 1`. Close Zoom/Teams which may hold the camera. |
-| `cv2.imshow` error on Linux server / WSL / Colab | add `--no-show`; results are still saved in `outputs/` (the demo now tells you this instead of crashing). |
-| Chinese characters in the folder/photo name | Supported (the demo reads/writes images through a Unicode-safe path and re-encodes console output as UTF-8). Very old PowerShell consoles may still *display* odd characters, but files are written correctly. |
+| Model download fails (campus Wi-Fi / mainland China) | The download shows a percentage but times out after 120 s. Download the `.task` file in a browser from the URL printed on screen and save it to `models/pose_landmarker_lite.task` (or `_full`/`_heavy`). |
+| Black window / `cannot open camera 0` | Try `--camera 0` and `--camera 1`; close Zoom/Teams/Camera; Windows Settings → Privacy → Camera / macOS System Settings → Privacy → allow Terminal or VS Code. |
+| `cv2.imshow` error on Linux server / WSL / Colab | add `--no-show`; for a **photo** the annotated image and CSVs are still saved in `outputs/`. For `--video`/`--webcam` add `--save-every 15` to save frames headlessly (nothing is saved otherwise). |
+| Chinese characters in the folder/photo name | Supported: images are read/written through a Unicode-safe path, console output is UTF-8, and if the project itself sits in a non-ASCII folder the model is automatically copied to an ASCII temp folder for MediaPipe. |
 | "No person detected" | whole body must be visible; improve lighting; try `--model full`. A warning is printed and an annotated image is still saved. |
+| Rows marked `!` in the table | at least one landmark had visibility < 0.5 (e.g. legs behind a desk). Do not record those values; re-take the photo. |
 | `[error] unknown --known key` | use one of the five valid straight-line names printed in the error message. |
 | Very slow | use `--model lite`; close other apps; resize the video/photo. |
 | Excel shows CSV rows in one column | Excel → Data → From Text/CSV → delimiter = comma, encoding = UTF-8. |
 | Weird `W0000 ... inference_feedback_manager` lines | Only visible if you set `IEDA3130_VERBOSE=1`. They are harmless MediaPipe warnings; unset the variable to hide them again. |
+| Cannot find `outputs/` | Results always go to the `outputs/` folder **next to `pose_demo.py`** (not the folder your shell is in). |
 
 ---
 
@@ -198,12 +220,12 @@ pose_demo.py                     CLI: --image / --webcam / --video, drawing, CSV
 measure.py                       pure-numpy geometry: landmark -> Pheasant dimensions, joint angles
 check_env.py                     one-shot environment self-test (model, inference, unicode, camera)
 tests/test_measure.py            optional unit tests for measure.py (no camera/mediapipe needed)
-requirements.txt                 mediapipe, opencv-python, numpy
+requirements.txt                 mediapipe, opencv-contrib-python, numpy
 IEDA3130_Pose_Demo_Colab.ipynb   browser fallback (Google Colab)
 WORKSHEET.md                     one-page record sheet for the in-class exercise
 LICENSE                          MIT (code); MediaPipe models are Apache-2.0
 models/                          model bundle (auto-downloaded, git-ignored)
-outputs/                         your results (git-ignored)
+outputs/                         your results: <name>_pose.jpg, _measures.csv, _angles.csv (git-ignored)
 ```
 
 Optional unit test: `python tests/test_measure.py` → 20 tests, no camera needed.

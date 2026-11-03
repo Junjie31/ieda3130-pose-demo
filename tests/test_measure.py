@@ -151,9 +151,10 @@ class TestComputeMeasures(unittest.TestCase):
         rows = {(r["key"], r["side"]): r for r in
                 compute_measures(pts, self.vis, self.world,
                                  known={"shoulder_elbow": 33.5})}
-        # mean of (33.5/100, 33.5/50) = 0.5025 cm/px
-        self.assertAlmostEqual(rows[("shoulder_elbow", "L")]["calibrated_cm"], 50.25, places=6)
-        self.assertAlmostEqual(rows[("shoulder_elbow", "R")]["calibrated_cm"], 25.125, places=6)
+        # pixel lengths of the taped segment are averaged (100 px, 50 px -> 75 px)
+        # before the cm/px ratio is formed, so the scale is 33.5 / 75 cm/px
+        self.assertAlmostEqual(rows[("shoulder_elbow", "L")]["calibrated_cm"], 44.6667, places=3)
+        self.assertAlmostEqual(rows[("shoulder_elbow", "R")]["calibrated_cm"], 22.3333, places=3)
 
 
 class TestComputeAngles(unittest.TestCase):

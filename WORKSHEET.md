@@ -4,7 +4,9 @@ Group: ________  Members (last 4 digits of SID): ________ ________ ________ ____
 
 Photo conditions: side view ☐  seated ☐  standing ☐   camera distance ≈ ____ m   model: lite ☐ full ☐ heavy ☐
 
-Calibration segment used with `--known`: ______________ = ______ cm (tape)
+Calibration segment used with `--known`: ______________ = ______ cm (tape)   side: L ☐  R ☐  (add `--known-side`)
+
+Output files submitted: `outputs/<photo>_pose.jpg`, `outputs/<photo>_measures.csv`, `outputs/<photo>_angles.csv`
 
 | Subject | Dimension (Pheasant no.) | Tape (Lab 2 Excel), cm | `world_cm` | `calibrated_cm` | Error calib − tape, cm |
 |---|---|---|---|---|---|
@@ -17,9 +19,13 @@ Calibration segment used with `--known`: ______________ = ______ cm (tape)
 | B | 25 | | | | |
 | B | 16 | | | | |
 
+> Rows marked `!` in the console table (= landmark visibility < 0.5) must **not** be recorded.
+> Record `world_cm` and `calibrated_cm` for the **same side** you taped, and say which side.
+
 Mean error = ______ cm   SD = ______ cm   (n = ____)
 
-Seated posture check (`--webcam`): chair height ______ cm → elbow_flexion ______ °, knee_flexion ______ °, trunk_lean ______ °
+Seated posture check (`--webcam`): chair height ______ cm →
+`elbow_flexion_L/R` ______ °, `knee_flexion_L/R` ______ °, `trunk_lean_deg` ______ °, `neck_forward_deg` ______ °
 
 Compared with your Step 8c result (keyboard height 72 cm, chair 42–50 cm): agree ☐  disagree ☐  because ____________________________
 

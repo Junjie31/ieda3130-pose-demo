@@ -126,7 +126,11 @@ def compute_measures(pts_px: np.ndarray, vis: np.ndarray, world: Optional[np.nda
     """
     known = known or {}
     rows = []
-    scale_samples = []
+    # key -> pixel length of that segment on each side that contributed.
+    # Collecting the pixel lengths first and averaging them per key (instead of
+    # averaging the per-side cm/px ratios) removes the mean(1/px) bias that made
+    # the taped segment miss the tape value on front-view photos.
+    scale_px: Dict[str, List[float]] = {}
 
     def side_rows(side):
         idx = SIDE_IDX[side]
@@ -145,12 +149,16 @@ def compute_measures(pts_px: np.ndarray, vis: np.ndarray, world: Optional[np.nda
                             note=note if ok else "LOW VISIBILITY - " + note))
             if (key in known and kind == "dist" and ok and px > 1
                     and (known_side is None or side == known_side)):
-                scale_samples.append(known[key] / px)
+                scale_px.setdefault(key, []).append(px)
         return out
 
     rows = side_rows(L) + side_rows(R)
-    if scale_samples:
-        cm_per_px = float(np.mean(scale_samples))
+    cm_per_px = None
+    if scale_px:
+        ratios = [known[k] / float(np.mean(pxs)) for k, pxs in scale_px.items() if pxs]
+        if ratios:
+            cm_per_px = float(np.mean(ratios))
+    if cm_per_px is not None:
         for r in rows:
             r["calibrated_cm"] = r["pixels"] * cm_per_px
     return rows

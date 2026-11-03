@@ -10,12 +10,13 @@ criteria (elbow ~90 deg at keyboard height).
 Usage
 -----
   python pose_demo.py --image photo.jpg                 # single photo
-  python pose_demo.py --image photo.jpg --known shoulder_elbow=33.5
   python pose_demo.py --image photo.jpg --known shoulder_elbow=33.5 --known-side R
   python pose_demo.py --webcam                          # live camera (press s = save, q = quit)
-  python pose_demo.py --video clip.mp4 --no-show        # video file, headless
+  python pose_demo.py --video clip.mp4 --no-show --save-every 15   # headless video
 
-Outputs are written to ./outputs/<name>_pose.jpg and ./outputs/<name>_measures.csv
+Outputs are written NEXT TO the script (not next to your shell) in
+./outputs/<name>_pose.jpg, ./outputs/<name>_measures.csv and
+./outputs/<name>_angles.csv.
 
 TA: Junjie HOU (IEDA 3130, HKUST)
 """
@@ -24,6 +25,7 @@ import contextlib
 import csv
 import os
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -79,8 +81,9 @@ MODEL_URLS = {
     "full": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
     "heavy": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task",
 }
-MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
-OUT_DIR = os.path.join(os.getcwd(), "outputs")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+OUT_DIR = os.path.join(BASE_DIR, "outputs")   # always next to the code, not the cwd
 
 
 # --------------------------------------------------------------------------- #
@@ -152,6 +155,61 @@ def imwrite_unicode(path: str, image) -> bool:
     return True
 
 
+def _ascii_temp_dir():
+    """Return a writable directory whose absolute path is pure ASCII, or None."""
+    candidates = [tempfile.gettempdir(),
+                  os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "Temp")]
+    for cand in candidates:
+        try:
+            cand.encode("ascii")
+        except UnicodeEncodeError:
+            continue
+        try:
+            os.makedirs(cand, exist_ok=True)
+            probe = os.path.join(cand, ".ieda-write-test")
+            with open(probe, "w", encoding="ascii") as fh:
+                fh.write("ok")
+            os.remove(probe)
+            return cand
+        except OSError:
+            continue
+    return None
+
+
+def mediapipe_safe_model_path(path: str) -> str:
+    """MediaPipe's C++ loader cannot open non-ASCII paths.
+
+    If the model file lives in e.g. a Chinese-named folder, copy it to a temp
+    folder with a pure-ASCII absolute path and use that copy instead.  The copy
+    is reused on later runs (same size => no re-copy).
+    """
+    try:
+        path.encode("ascii")
+        return path
+    except UnicodeEncodeError:
+        pass
+    tmpdir = _ascii_temp_dir()
+    if tmpdir is None:
+        print("[warn] the project folder contains non-ASCII characters and no ASCII "
+              "temp folder was found.\n"
+              "       MediaPipe may fail to load the model. Move the project to a "
+              "path like C:\\IEDA3130.")
+        return path
+    import hashlib
+    import shutil
+    tag = hashlib.sha1(path.encode("utf-8")).hexdigest()[:10]
+    dst = os.path.join(tmpdir, f"ieda3130_model_{tag}.task")
+    try:
+        if not (os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(path)):
+            shutil.copyfile(path, dst)
+        print(f"[info] non-ASCII project path detected - using ASCII model copy:\n       {dst}")
+    except OSError as e:
+        print(f"[warn] could not copy the model to an ASCII path ({e}); trying the "
+              f"original path.")
+        return path
+    return dst
+
+
 # --------------------------------------------------------------------------- #
 # Model handling
 # --------------------------------------------------------------------------- #
@@ -162,13 +220,41 @@ def ensure_model(variant: str = "lite") -> str:
     if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
         return path
     url = MODEL_URLS[variant]
-    print(f"[info] downloading model ({variant}, 5-30 MB) ...\n       {url}")
+    print(f"[info] downloading model ({variant}) ...\n       {url}")
+    tmp = path + ".part"
     try:
-        urllib.request.urlretrieve(url, path)
+        req = urllib.request.Request(url, headers={"User-Agent": "ieda3130-pose-demo"})
+        with urllib.request.urlopen(req, timeout=120) as resp, open(tmp, "wb") as fh:
+            total = int(resp.headers.get("Content-Length") or 0)
+            done = 0
+            last_step = -1
+            while True:
+                chunk = resp.read(1 << 16)
+                if not chunk:
+                    break
+                fh.write(chunk)
+                done += len(chunk)
+                if total:
+                    step = int(100.0 * done / total) // 5   # print every ~5 %
+                    if step != last_step:
+                        last_step = step
+                        print(f"\r[info] downloading {100.0 * done / total:5.1f}% "
+                              f"({done / 1e6:5.1f} / {total / 1e6:.1f} MB)",
+                              end="", flush=True)
+                else:
+                    print(f"\r[info] downloading {done / 1e6:5.1f} MB", end="", flush=True)
+        if total:
+            print()
+        os.replace(tmp, path)
     except Exception as e:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
         sys.exit(
             f"[error] model download failed: {e}\n"
-            f"        Download it manually in a browser and save as:\n        {path}"
+            f"        Check your network, or download the file manually in a browser\n"
+            f"        and save it as:\n        {path}"
         )
     print(f"[info] saved -> {path}")
     return path
@@ -176,6 +262,7 @@ def ensure_model(variant: str = "lite") -> str:
 
 def build_landmarker(model_path: str, mode: str):
     """mode: 'image' or 'video'."""
+    model_path = mediapipe_safe_model_path(model_path)
     running = (
         mp_vision.RunningMode.IMAGE if mode == "image" else mp_vision.RunningMode.VIDEO
     )
@@ -260,6 +347,7 @@ def save_outputs(stem: str, annotated, rows, angles):
     os.makedirs(OUT_DIR, exist_ok=True)
     img_path = os.path.join(OUT_DIR, f"{stem}_pose.jpg")
     csv_path = os.path.join(OUT_DIR, f"{stem}_measures.csv")
+    ang_path = os.path.join(OUT_DIR, f"{stem}_angles.csv")
     wrote_img = imwrite_unicode(img_path, annotated)
     try:
         with open(csv_path, "w", newline="", encoding="utf-8") as f:
@@ -271,33 +359,45 @@ def save_outputs(stem: str, annotated, rows, angles):
                               "" if r["world_cm"] is None else f'{r["world_cm"]:.1f}',
                               "" if r["calibrated_cm"] is None else f'{r["calibrated_cm"]:.1f}',
                               r["note"]])
-            wri.writerow([])
-            wri.writerow(["angle_deg", "", "", "", "", "", ""])
+        with open(ang_path, "w", newline="", encoding="utf-8") as f:
+            wri = csv.writer(f)
+            wri.writerow(["angle", "degrees"])
             for k, v in angles.items():
-                wri.writerow([k, "", "", "", "", f"{v:.1f}" if v is not None else "", ""])
+                wri.writerow([k, "" if v is None else f"{v:.1f}"])
     except OSError as e:
         print(f"[error] could not write CSV: {e}")
         return
     if wrote_img:
-        print(f"[ok] image -> {img_path}")
+        print(f"[ok] image    -> {img_path}")
     else:
         print(f"[error] could not write image (check permissions / disk space): {img_path}")
-    print(f"[ok] csv   -> {csv_path}")
+    print(f"[ok] measures -> {csv_path}")
+    print(f"[ok] angles   -> {ang_path}")
 
 
 def print_table(rows, angles):
     width = max(34, max(len(r["measure"]) for r in rows) + 2) if rows else 34
-    print("\n{:<{w}} {:>6} {:>9} {:>11} {:>10}".format(
-        "measure", "No.", "px", "world_cm", "calib_cm", w=width))
-    print("-" * (width + 40))
+    print("\n{:<{w}} {:>1} {:>6} {:>9} {:>11} {:>10}".format(
+        "measure", "", "No.", "px", "world_cm", "calib_cm", w=width))
+    print("-" * (width + 42))
+    any_low = False
     for r in rows:
-        print("{:<{w}} {:>6} {:>9.1f} {:>11} {:>10}".format(
-            f'{r["measure"]} ({r["side"]})', r["pheasant_no"], r["pixels"],
+        low = r["note"].startswith("LOW VISIBILITY")
+        any_low = any_low or low
+        print("{:<{w}} {:>1} {:>6} {:>9.1f} {:>11} {:>10}".format(
+            f'{r["measure"]} ({r["side"]})', "!" if low else "", r["pheasant_no"],
+            r["pixels"],
             "-" if r["world_cm"] is None else f'{r["world_cm"]:.1f}',
             "-" if r["calibrated_cm"] is None else f'{r["calibrated_cm"]:.1f}', w=width))
+    if any_low:
+        print("\n[!] Rows marked '!' have at least one landmark with visibility < 0.5.")
+        print("    Their pixel/world values are extrapolated - do NOT record them on the worksheet.")
+        print("    Re-take the photo with the whole body visible (README section 4).")
     print("\nJoint angles (deg):")
     for k, v in angles.items():
         print(f"  {k:<28} {'-' if v is None else f'{v:.1f}'}")
+    if any(v is None for v in angles.values()):
+        print("  ('-' = the required landmarks were not visible enough to compute this angle)")
 
 
 def parse_known(items, known_side=None):
@@ -321,6 +421,9 @@ def parse_known(items, known_side=None):
         if not np.isfinite(value) or value <= 0:
             sys.exit(f"[error] --known {k}: the tape value must be a positive number of "
                      f"centimetres, got {value}")
+        if value > 200:
+            sys.exit(f"[error] --known {k}: {value} cm is not a plausible body-segment length "
+                     f"(tape values are typically 25-65 cm)")
         if k not in CALIBRATION_KEYS:
             sys.exit(
                 f"[error] unknown --known key: {k!r}\n"
@@ -335,6 +438,7 @@ def parse_known(items, known_side=None):
 # Modes
 # --------------------------------------------------------------------------- #
 def run_image(args):
+    known = parse_known(args.known, args.known_side)   # fail fast, before model load
     frame = imread_unicode(args.image)
     if frame is None:
         sys.exit(f"[error] cannot read image: {args.image}\n"
@@ -347,8 +451,7 @@ def run_image(args):
     with build_landmarker(model, "image") as lm:
         result = detect_image(lm, frame)
     annotated, rows, angles = process_result(
-        frame, result, known=parse_known(args.known, args.known_side),
-        known_side=args.known_side, label=args.label)
+        frame, result, known=known, known_side=args.known_side, label=args.label)
     if rows:
         print_table(rows, angles)
     else:
@@ -370,25 +473,51 @@ def run_image(args):
 
 
 def run_stream(args):
+    known = parse_known(args.known, args.known_side)   # fail fast, before opening the source
     src = args.camera if args.video is None else args.video
     cap = cv2.VideoCapture(src)
     if not cap.isOpened():
-        sys.exit(f"[error] cannot open source {src!r}. Try --camera 1 (or 0) / check camera permission.")
+        if args.video is None:
+            sys.exit(f"[error] cannot open camera {args.camera}.\n"
+                     f"        Try --camera 0 and --camera 1, close any app that uses the camera\n"
+                     f"        (Zoom, Teams, Camera), and check the camera permission in\n"
+                     f"        Windows Settings > Privacy > Camera / macOS System Settings > Privacy.")
+        sys.exit(f"[error] cannot open video file: {args.video}\n"
+                 f"        Check the path and that it is a real video (mp4/avi/mov).")
+    if args.video is not None:
+        n_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        if 0 < n_frames <= 1:
+            print("[warn] this file seems to contain only one frame - did you mean --image?")
+        if args.no_show and not args.save_every:
+            print("[hint] headless video mode does not save anything by itself;\n"
+                  "       add --save-every 15 to write annotated frames + CSVs into outputs/.")
+    if args.webcam and args.no_show:
+        print("[warn] --webcam with --no-show runs without a window or saved output.\n"
+              "       Add --save-every 15 to save frames, or press Ctrl+C to stop.")
+    stem = (os.path.splitext(os.path.basename(args.video))[0]
+            if args.video is not None else "webcam")
     model = ensure_model(args.model)
-    known = parse_known(args.known, args.known_side)
-    fps_hist, t_prev, ts_ms, n_saved = [], time.time(), 0, 0
+    fps_hist, t_prev, ts_ms, n_saved, frame_idx = [], time.time(), 0, 0, 0
+    win = "IEDA3130 pose demo"
     with build_landmarker(model, "video") as lm:
         while True:
+            if args.max_frames and frame_idx >= args.max_frames:
+                print(f"[info] stopping after --max-frames {args.max_frames}")
+                break
             ok, frame = cap.read()
             if not ok:
                 print("[info] end of stream")
                 break
+            frame_idx += 1
             if args.video is None:
                 frame = cv2.flip(frame, 1)  # mirror webcam
             ts_ms += 33 if args.video is None else int(1000 / max(cap.get(cv2.CAP_PROP_FPS) or 30, 1))
             result = detect_video(lm, frame, ts_ms)
             annotated, rows, angles = process_result(
                 frame, result, known=known, known_side=args.known_side, label=args.label)
+            if args.save_every and frame_idx % args.save_every == 0 and rows:
+                n_saved += 1
+                save_outputs(f"{stem}_frame_{frame_idx:04d}", annotated, rows, angles)
             now = time.time()
             fps_hist.append(1.0 / max(now - t_prev, 1e-6)); t_prev = now
             fps = np.mean(fps_hist[-20:])
@@ -399,21 +528,29 @@ def run_stream(args):
             put_panel(annotated, lines)
             if not args.no_show:
                 try:
-                    cv2.imshow("IEDA3130 pose demo", annotated)
+                    cv2.imshow(win, annotated)
                     key = cv2.waitKey(1) & 0xFF
                 except cv2.error as e:
                     cap.release()
                     cv2.destroyAllWindows()
                     sys.exit(f"[error] cannot open a window here ({e}).\n"
-                             f"        Use --video clip.mp4 --no-show on headless machines.")
+                             f"        Use --video clip.mp4 --no-show --save-every 15 on headless machines.")
                 if key == ord("q") or key == 27:
                     break
                 if key == ord("s") and rows:
                     n_saved += 1
                     save_outputs(f"frame_{n_saved:03d}", annotated, rows, angles)
                     print_table(rows, angles)
+                try:  # closing the window with the X button should also stop the camera
+                    if cv2.getWindowProperty(win, cv2.WND_PROP_VISIBLE) < 1:
+                        break
+                except cv2.error:
+                    break
     cap.release()
     cv2.destroyAllWindows()
+    if args.save_every and n_saved == 0:
+        print("[info] --save-every matched no frame with a detected person "
+              "(try a larger --save-every or a clearer video).")
 
 
 def main():
@@ -433,6 +570,11 @@ def main():
                    help="which body side the --known tape values refer to (default: all visible sides)")
     p.add_argument("--label", action="store_true", help="draw landmark indices (0-32)")
     p.add_argument("--no-show", action="store_true", help="do not open a window (headless / Colab)")
+    p.add_argument("--save-every", type=int, default=0, metavar="N",
+                   help="video/webcam only: save the annotated frame and CSVs every Nth frame "
+                        "to outputs/ (0 = off; useful on headless machines)")
+    p.add_argument("--max-frames", type=int, default=0, metavar="N",
+                   help="video/webcam only: stop after N frames (0 = no limit)")
     args = p.parse_args()
     if args.image:
         run_image(args)
