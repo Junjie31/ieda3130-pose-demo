@@ -319,13 +319,75 @@ def draw_skeleton(frame: np.ndarray, pts_px: np.ndarray, vis: np.ndarray,
     return out
 
 
-def put_panel(frame: np.ndarray, lines, origin=(10, 25)) -> np.ndarray:
+def put_panel(frame: np.ndarray, lines, origin=(10, 25), line_h: int = 22,
+              font_scale: float = 0.55):
+    """Draw a translucent HUD panel.  `lines` items are str or (str, (B, G, R))."""
     x, y = origin
-    for text in lines:
-        cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
-        cv2.putText(frame, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
-        y += 22
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    parsed = [(item, (255, 255, 255)) if isinstance(item, str) else (item[0], item[1])
+              for item in lines]
+    texts = [t for t, _ in parsed]
+    if not texts:
+        return frame
+    widths = [cv2.getTextSize(t, font, font_scale, 1)[0][0] for t in texts]
+    w_px = max(widths) + 36
+    h_px = line_h * len(texts) + 14
+    h, w = frame.shape[:2]
+    x1, y1 = max(0, x - 10), max(0, y - 20)
+    x2, y2 = min(w, x1 + w_px), min(h, y1 + h_px)
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x1, y1), (x2, y2), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.62, frame, 0.38, 0, frame)
+    for text, colour in parsed:
+        # dark panel background -> draw clean single-stroke text (no dark halo)
+        cv2.putText(frame, text, (x, y), font, font_scale, colour, 1, cv2.LINE_AA)
+        y += line_h
     return frame
+
+
+# BS 7310-inspired posture targets used by the live HUD.  These are teaching
+# guidelines for a seated VDT workstation posture, not a substitute for the
+# standard itself: knee/elbow internal angle ~90 deg, forearm horizontal,
+# trunk upright, head not poking forward.
+POSTURE_RULES = {
+    #  key prefix           target centre  tolerance  label
+    "elbow_flexion": (90.0, 10.0, "elbow ~90 deg"),
+    "knee_flexion": (90.0, 10.0, "knee ~90 deg"),
+    "trunk_lean_deg": (0.0, 10.0, "trunk lean <10 deg"),
+    "neck_forward_deg": (0.0, 20.0, "neck forward <20 deg"),
+}
+COLOUR_OK = (80, 220, 80)       # green
+COLOUR_ADJUST = (0, 165, 255)   # orange (BGR)
+COLOUR_NA = (170, 170, 170)     # grey
+
+
+def posture_status(angles):
+    """Return (lines, n_ok, n_checked) for the live posture HUD.
+
+    One line per available angle, e.g. 'elbow_L    92.3 deg OK'.
+    """
+    short = {"elbow_flexion": "elbow", "knee_flexion": "knee",
+             "trunk_lean_deg": "trunk_lean", "neck_forward_deg": "neck_fwd"}
+    lines, n_ok, n_checked = [], 0, 0
+    for key, (centre, tol, _label) in POSTURE_RULES.items():
+        if key in ("trunk_lean_deg", "neck_forward_deg"):
+            ids = [(key, "")]
+        else:
+            ids = [(f"{key}_L", "L"), (f"{key}_R", "R")]
+        for ang_key, side in ids:
+            if ang_key not in angles:
+                continue
+            val = angles[ang_key]
+            name = short[key] + (f"_{side}" if side else "")
+            if val is None:
+                lines.append((f"{name:<11}      -       ", COLOUR_NA))
+                continue
+            ok = abs(val - centre) <= tol
+            n_checked += 1
+            n_ok += 1 if ok else 0
+            lines.append((f"{name:<11}{val:7.1f} deg {'OK' if ok else 'adjust'}",
+                          COLOUR_OK if ok else COLOUR_ADJUST))
+    return lines, n_ok, n_checked
 
 
 # --------------------------------------------------------------------------- #
@@ -515,17 +577,22 @@ def run_stream(args):
             result = detect_video(lm, frame, ts_ms)
             annotated, rows, angles = process_result(
                 frame, result, known=known, known_side=args.known_side, label=args.label)
-            if args.save_every and frame_idx % args.save_every == 0 and rows:
-                n_saved += 1
-                save_outputs(f"{stem}_frame_{frame_idx:04d}", annotated, rows, angles)
             now = time.time()
             fps_hist.append(1.0 / max(now - t_prev, 1e-6)); t_prev = now
             fps = np.mean(fps_hist[-20:])
-            lines = [f"FPS {fps:4.1f}   model={args.model}   [s]=save  [q]=quit"]
-            for k in ("elbow_flexion_L", "elbow_flexion_R", "knee_flexion_L", "knee_flexion_R", "trunk_lean_deg"):
-                if k in angles and angles[k] is not None:
-                    lines.append(f"{k:<16} {angles[k]:6.1f} deg")
-            put_panel(annotated, lines)
+            posture_lines, n_ok, n_checked = posture_status(angles)
+            if n_checked:
+                verdict = "POSTURE OK" if n_ok == n_checked else f"ADJUST ({n_ok}/{n_checked} OK)"
+            else:
+                verdict = "POSTURE: step back so the whole body is visible"
+            lines = [(f"FPS {fps:4.1f}  model={args.model}  [s]=save [q]=quit", (255, 255, 255)),
+                     (verdict, COLOUR_OK if n_checked and n_ok == n_checked else COLOUR_ADJUST),
+                     ("Targets: green = OK, orange = adjust", COLOUR_NA)]
+            lines += posture_lines
+            put_panel(annotated, lines)   # draw the HUD BEFORE saving snapshots
+            if args.save_every and frame_idx % args.save_every == 0 and rows:
+                n_saved += 1
+                save_outputs(f"{stem}_frame_{frame_idx:04d}", annotated, rows, angles)
             if not args.no_show:
                 try:
                     cv2.imshow(win, annotated)

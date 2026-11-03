@@ -31,32 +31,94 @@ webcam (build machine had none) — please run `check_env.py` on your own laptop
 
 ---
 
-## 1 · Quick start (5 minutes) · 快速开始
+## 1 · Quick start · 快速开始
 
-```bash
-# 0) Python 3.9-3.14 works; 3.12 or 3.13 is the recommended choice. Check:
-python --version
+**No Python experience assumed.** Pick one of the three routes below.
 
-# 1) get the code
+### Route A — Complete beginner: Anaconda + Git (recommended)
+
+This is the same tool chain used in IEDA2100S Lab 8 (Object Detection).
+
+**Step 0 · Install Anaconda** (skip if already installed)
+
+1. Go to <https://www.anaconda.com/download> and download the **Windows 64-bit** installer
+   (macOS/Linux: pick your installer).
+2. Run it and accept the default options. It installs the **Anaconda Prompt**, which is the
+   terminal you will use from now on.
+
+**Step 0b · Install Git** (skip if already installed)
+
+1. Go to <https://git-scm.com/download/win> and download the 64-bit **Standalone Installer**.
+2. Run it, accept the defaults, then open a **new** Anaconda Prompt.
+3. Check: `git --version`
+
+**Step 1 · Open the terminal**
+
+Press Start → search **Anaconda Prompt** → open it.
+
+**Step 2 · Get the code**
+
+```bat
 git clone https://github.com/Junjie31/ieda3130-pose-demo.git
 cd ieda3130-pose-demo
+```
 
-# 2) (recommended) virtual environment
+**Step 3 · Create and activate the environment**
+
+```bat
+conda create -n ieda3130 python=3.12 -y
+conda activate ieda3130
+```
+
+(The `ieda3130` environment is an isolated "kitchen" with its own Python 3.12 — it cannot
+break your other projects.)
+
+**Step 4 · Install the packages** (about 30 s, ~350 MB disk, no compiler needed)
+
+```bat
+python -m pip install -r requirements.txt
+```
+
+**Step 5 · Self-test** (downloads the pose model, ~6 MB)
+
+```bat
+python check_env.py
+```
+
+**Step 6 · Run the demo**
+
+```bat
+python pose_demo.py --webcam               REM live skeleton + posture feedback (s = save, q = quit)
+python pose_demo.py --image my_photo.jpg   REM one photo -> skeleton + measurement table
+```
+
+**Even simpler: one-click scripts.** Double-click `setup_windows.bat` once (it finds Anaconda,
+creates the environment, installs everything and runs the self-test), then:
+
+- `run_webcam.bat` — live camera demo
+- drag a photo file onto `run_image.bat` — single-photo measurement
+
+`environment.yml` is also provided if you prefer `conda env create -f environment.yml`.
+
+### Route B — Python is already installed (venv route)
+
+```bash
+# Python 3.9-3.14 works; 3.12 or 3.13 recommended
+python --version
+git clone https://github.com/Junjie31/ieda3130-pose-demo.git
+cd ieda3130-pose-demo
 python -m venv .venv
 #   Windows:      .venv\Scripts\activate
 #   macOS/Linux:  source .venv/bin/activate
-
-# 3) install
 python -m pip install -r requirements.txt
-
-# 4) self-test (downloads the ~6 MB model, runs one inference, checks unicode
-#    paths and the camera)
 python check_env.py
-
-# 5) run
-python pose_demo.py --webcam                 # live skeleton + joint angles (s = save, q = quit)
-python pose_demo.py --image my_photo.jpg     # one photo -> skeleton + measurement table
+python pose_demo.py --webcam
 ```
+
+### Route C — No install at all
+
+Open **`IEDA3130_Pose_Demo_Colab.ipynb`** in Google Colab — same code in the browser
+(photo mode only; Colab cannot stream your camera).
 
 `python check_env.py` should end with:
 
@@ -72,8 +134,20 @@ camera 0 : not available (fine if you only use --image)
 All good. Try:  python pose_demo.py --image your_photo.jpg
 ```
 
-No camera / no admin rights? Open **`IEDA3130_Pose_Demo_Colab.ipynb`** in Google
-Colab — same code, runs in the browser.
+### What you see in the live window (`--webcam`)
+
+| HUD line | Meaning |
+|---|---|
+| `FPS 24.1  model=lite  [s]=save [q]=quit` | frames per second and keyboard shortcuts |
+| `POSTURE OK` / `ADJUST (4/6 OK)` | how many of the visible angles are inside the targets |
+| `elbow_L 92.3 deg OK` (green) | elbow internal angle ~90° (80–100°) |
+| `knee_R 101.2 deg adjust` (orange) | knee internal angle outside 80–100° |
+| `trunk_lean 2.4 deg OK` | trunk lean from vertical < 10° |
+| `neck_fwd 25.4 deg adjust` | head-forward angle < 20° |
+
+Green = inside the BS 7310-inspired target, orange = adjust your chair/keyboard, grey = that
+landmark is not visible enough. These are teaching guidelines, not a pass/fail assessment.
+Press `s` to save a snapshot (skeleton + HUD + CSVs) or close the window / press `q` to stop.
 
 ---
 
@@ -199,6 +273,10 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 |---|---|
 | `pip install mediapipe` finds no wheel | Use Python 3.9–3.14 (64-bit). mediapipe 1.2.0 ships a `py3-none-win_amd64` wheel plus macOS Apple-Silicon and Linux x64/ARM64 wheels. **Intel Mac**: `pip install "mediapipe<0.10.22"` with Python ≤ 3.12 (this workaround was NOT verified on this machine), or use the Colab notebook. |
 | `ModuleNotFoundError: cv2` / `mediapipe` | Activate the virtual environment first, then `python -m pip install -r requirements.txt`. If you used `python -m venv`, the venv's `python` must be used to run the script. |
+| `'conda' is not recognized` / setup script says Conda not found | Install Anaconda from <https://www.anaconda.com/download> (default options), then **close and reopen** the Anaconda Prompt / run `setup_windows.bat` again. |
+| `conda activate` does nothing / stays on base | Use the **Anaconda Prompt** (not cmd/PowerShell). In PowerShell run `conda init powershell`, reopen the shell; or use the one-click `.bat` scripts. |
+| One-click script says environment "ieda3130" not found | Run `setup_windows.bat` first (it creates the environment), or create it manually: `conda create -n ieda3130 python=3.12 -y`. |
+| `run_image.bat` closes immediately | Drag the photo **onto** the `.bat` icon (passing the file as an argument); if you double-click it with no photo it prints usage and exits. |
 | Model download fails (campus Wi-Fi / mainland China) | The download shows a percentage but times out after 120 s. Download the `.task` file in a browser from the URL printed on screen and save it to `models/pose_landmarker_lite.task` (or `_full`/`_heavy`). |
 | Black window / `cannot open camera 0` | Try `--camera 0` and `--camera 1`; close Zoom/Teams/Camera; Windows Settings → Privacy → Camera / macOS System Settings → Privacy → allow Terminal or VS Code. |
 | `cv2.imshow` error on Linux server / WSL / Colab | add `--no-show`; for a **photo** the annotated image and CSVs are still saved in `outputs/`. For `--video`/`--webcam` add `--save-every 15` to save frames headlessly (nothing is saved otherwise). |
@@ -216,19 +294,27 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 ## 6 · Files
 
 ```
-pose_demo.py                     CLI: --image / --webcam / --video, drawing, CSV export
+pose_demo.py                     CLI: --image / --webcam / --video, live HUD, drawing, CSV export
 measure.py                       pure-numpy geometry: landmark -> Pheasant dimensions, joint angles
 check_env.py                     one-shot environment self-test (model, inference, unicode, camera)
-tests/test_measure.py            optional unit tests for measure.py (no camera/mediapipe needed)
+tests/test_measure.py            unit tests for measure.py (no camera/mediapipe needed)
+tests/test_stream_smoke.py       simulated live-camera test (no webcam hardware needed)
 requirements.txt                 mediapipe, opencv-contrib-python, numpy
+environment.yml                  optional Conda environment (one-command install)
+setup_windows.bat                one-click Windows setup (finds Anaconda, installs everything)
+run_webcam.bat                   one-click Windows live-camera launcher
+run_image.bat                    one-click Windows single-photo launcher (drag a photo onto it)
 IEDA3130_Pose_Demo_Colab.ipynb   browser fallback (Google Colab)
 WORKSHEET.md                     one-page record sheet for the in-class exercise
 LICENSE                          MIT (code); MediaPipe models are Apache-2.0
+samples/sample_pose.jpg          sample photo if you do not have one yet
 models/                          model bundle (auto-downloaded, git-ignored)
 outputs/                         your results: <name>_pose.jpg, _measures.csv, _angles.csv (git-ignored)
 ```
 
-Optional unit test: `python tests/test_measure.py` → 20 tests, no camera needed.
+Optional checks: `python tests/test_measure.py` (20 geometry tests, no camera) and
+`python tests/test_stream_smoke.py` (runs the live `--webcam` code path on a simulated
+camera, no hardware needed).
 
 ---
 
@@ -246,5 +332,6 @@ Optional unit test: `python tests/test_measure.py` → 20 tests, no camera neede
 - Cao, Z. et al. (2017). *Realtime Multi-Person 2D Pose Estimation using Part Affinity Fields* (OpenPose), CVPR.
 - Bazarevsky, V. et al. (2020). *BlazePose: On-device Real-time Body Pose Tracking*. Google AI.
 - MediaPipe Pose Landmarker docs: https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/python
+- `samples/sample_pose.jpg` is from Google's MediaPipe sample assets (Apache-2.0).
 
 *Licence: code MIT (see LICENSE); MediaPipe models Apache-2.0. Teaching material of IEDA 3130, HKUST – do not redistribute student photos.*

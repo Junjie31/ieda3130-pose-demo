@@ -1,0 +1,21 @@
+# IEDA 3130 pose demo - optional Conda environment (the beginner-friendly route).
+#
+#   conda env create -f environment.yml
+#   conda activate ieda3130
+#   python check_env.py
+#
+# If you already created the environment manually with
+#   conda create -n ieda3130 python=3.12 -y
+#   conda activate ieda3130
+#   python -m pip install -r requirements.txt
+# you do NOT need this file (both routes end up with the same packages).
+name: ieda3130
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - mediapipe>=0.10.14,<2
+      - opencv-contrib-python>=4.8,<6
+      - numpy>=1.24,<3
