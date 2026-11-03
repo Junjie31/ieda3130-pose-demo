@@ -26,8 +26,10 @@ on a normal laptop (Windows / macOS / Linux) or in Google Colab.
 install ≈ 30 s, first `check_env.py` run ≈ 4 s.  Lite model inference ≈ 7 ms/frame
 on CPU (≈ 145 fps without camera/display overhead); the live demo was observed at
 ≈ 20–30 fps end-to-end.  Non-ASCII (Chinese) folder and file names are supported.
-Not verified in this environment: Intel-Mac / Apple-Silicon specifics and a real
-webcam (build machine had none) — please run `check_env.py` on your own laptop.
+**Verified on Windows 11**; macOS is supported by design (one-click `.command` scripts and a
+Route A-macOS section are included) but could not be executed on the build machine, and no
+real webcam was available here — please run `check_env.py` on your own laptop and report any
+deviation. Intel-Mac mediapipe wheels are a known risk (see Troubleshooting).
 
 ---
 
@@ -99,6 +101,83 @@ creates the environment, installs everything and runs the self-test), then:
 - drag a photo file onto `run_image.bat` — single-photo measurement
 
 `environment.yml` is also provided if you prefer `conda env create -f environment.yml`.
+
+### Route A-macOS — Complete beginner on a Mac
+
+macOS does **not** ship Python or Conda by default, so start here just like on Windows.
+
+**Step 0 · Install Anaconda**
+
+1. Go to <https://www.anaconda.com/download> and download the **macOS installer**.
+2. Pick **Apple Silicon** if your Mac has an M1/M2/M3/M4 chip (Apple menu → About This Mac →
+   "Chip: Apple M…"), otherwise pick **Intel**.
+3. Double-click the downloaded `.pkg` and accept the default options.
+
+**Step 0b · Install Git**
+
+1. Open **Terminal** (Spotlight search → "Terminal").
+2. Type `git --version`.
+   - If Git is already present, you see a version number.
+   - If not, macOS offers to install the **Command Line Developer Tools**: click **Install**,
+     then run `git --version` again. (Alternative: <https://git-scm.com/download/mac>.)
+
+**Step 1 · Get Conda into your shell**
+
+The Anaconda installer normally runs `conda init` for you. If `conda --version` says
+"command not found", run this once (use `/opt/anaconda3` instead of `~/anaconda3` if that is
+where Anaconda was installed), then close and reopen Terminal:
+
+```bash
+~/anaconda3/bin/conda init zsh
+```
+
+**Step 2 · Get the code**
+
+```bash
+git clone https://github.com/Junjie31/ieda3130-pose-demo.git
+cd ieda3130-pose-demo
+```
+
+**Step 3 · Create and activate the environment**
+
+```bash
+conda create -n ieda3130 python=3.12 -y
+conda activate ieda3130
+```
+
+**Step 4 · Install the packages** (about 30 s, ~350 MB disk, no compiler needed)
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+**Step 5 · Self-test** (downloads the pose model, ~6 MB)
+
+```bash
+python check_env.py
+```
+
+**Step 6 · Run the demo**
+
+```bash
+python pose_demo.py --webcam               # live skeleton + posture feedback (s = save, q = quit)
+python pose_demo.py --image my_photo.jpg   # one photo -> skeleton + measurement table
+```
+
+**Camera permission on macOS (important):** the first time the live demo runs, macOS asks
+whether Terminal may use the camera — click **Allow**. If you missed it, enable
+**System Settings → Privacy & Security → Camera → Terminal**.
+
+**Even simpler: one-click scripts.** Double-click `setup_mac.command` once, then
+`run_webcam.command` or drag a photo onto `run_image.command`. If macOS refuses to open a
+`.command` file ("unidentified developer"), right-click → **Open**, or run
+`bash setup_mac.command` in Terminal. You may need once: `chmod +x *.command`.
+
+> **Apple Silicon vs Intel:** MediaPipe publishes Apple-Silicon wheels, so M-series Macs are
+> the well-supported path. On older Intel Macs `pip install mediapipe` may find no wheel —
+> try `python -m pip install "mediapipe<0.10.22"`; if that fails, use the Colab notebook.
+> (macOS itself was **not** available on the machine that tested this demo — see the
+> "verified" note at the top; please report anything that does not match these steps.)
 
 ### Route B — Python is already installed (venv route)
 
@@ -274,8 +353,11 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 | `pip install mediapipe` finds no wheel | Use Python 3.9–3.14 (64-bit). mediapipe 1.2.0 ships a `py3-none-win_amd64` wheel plus macOS Apple-Silicon and Linux x64/ARM64 wheels. **Intel Mac**: `pip install "mediapipe<0.10.22"` with Python ≤ 3.12 (this workaround was NOT verified on this machine), or use the Colab notebook. |
 | `ModuleNotFoundError: cv2` / `mediapipe` | Activate the virtual environment first, then `python -m pip install -r requirements.txt`. If you used `python -m venv`, the venv's `python` must be used to run the script. |
 | `'conda' is not recognized` / setup script says Conda not found | Install Anaconda from <https://www.anaconda.com/download> (default options), then **close and reopen** the Anaconda Prompt / run `setup_windows.bat` again. |
-| `conda activate` does nothing / stays on base | Use the **Anaconda Prompt** (not cmd/PowerShell). In PowerShell run `conda init powershell`, reopen the shell; or use the one-click `.bat` scripts. |
-| One-click script says environment "ieda3130" not found | Run `setup_windows.bat` first (it creates the environment), or create it manually: `conda create -n ieda3130 python=3.12 -y`. |
+| **macOS**: `conda: command not found` | Run `~/anaconda3/bin/conda init zsh` once (use `/opt/anaconda3` for a system-wide install), then close and reopen Terminal. |
+| **macOS**: camera window stays black / no camera | System Settings → Privacy & Security → Camera → enable **Terminal**, then restart Terminal. |
+| **macOS**: cannot open `setup_mac.command` ("unidentified developer") | Right-click the file → **Open**, or run `bash setup_mac.command` in Terminal; once: `chmod +x *.command`. |
+| **macOS Intel**: `pip install mediapipe` finds no wheel | `python -m pip install "mediapipe<0.10.22"` with Python ≤ 3.12; if that fails use the Colab notebook (Apple-Silicon wheels are the well-supported path). |
+| One-click script says environment "ieda3130" not found | Run `setup_windows.bat` / `setup_mac.command` first (it creates the environment), or create it manually: `conda create -n ieda3130 python=3.12 -y`. |
 | `run_image.bat` closes immediately | Drag the photo **onto** the `.bat` icon (passing the file as an argument); if you double-click it with no photo it prints usage and exits. |
 | Model download fails (campus Wi-Fi / mainland China) | The download shows a percentage but times out after 120 s. Download the `.task` file in a browser from the URL printed on screen and save it to `models/pose_landmarker_lite.task` (or `_full`/`_heavy`). |
 | Black window / `cannot open camera 0` | Try `--camera 0` and `--camera 1`; close Zoom/Teams/Camera; Windows Settings → Privacy → Camera / macOS System Settings → Privacy → allow Terminal or VS Code. |
@@ -304,6 +386,9 @@ environment.yml                  optional Conda environment (one-command install
 setup_windows.bat                one-click Windows setup (finds Anaconda, installs everything)
 run_webcam.bat                   one-click Windows live-camera launcher
 run_image.bat                    one-click Windows single-photo launcher (drag a photo onto it)
+setup_mac.command                one-click macOS setup (finds Anaconda, installs everything)
+run_webcam.command               one-click macOS live-camera launcher
+run_image.command                one-click macOS single-photo launcher (drag a photo onto it)
 IEDA3130_Pose_Demo_Colab.ipynb   browser fallback (Google Colab)
 WORKSHEET.md                     one-page record sheet for the in-class exercise
 LICENSE                          MIT (code); MediaPipe models are Apache-2.0
