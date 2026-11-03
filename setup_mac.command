@@ -69,6 +69,7 @@ echo "============================================================"
 echo "  Setup complete!"
 echo "    Double-click run_webcam.command      - live camera demo"
 echo "    Drag a photo onto run_image.command  - single photo demo"
+echo "    To type commands yourself: open Terminal and run:  conda activate ieda3130"
 echo
 echo "  First live run: allow camera access for Terminal when macOS asks,"
 echo "  or enable it in System Settings > Privacy & Security > Camera."

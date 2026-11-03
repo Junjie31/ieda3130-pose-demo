@@ -64,6 +64,7 @@ echo ============================================================
 echo   Setup complete!
 echo     Double-click run_webcam.bat     - live camera demo
 echo     Drag a photo onto run_image.bat - single photo demo
+echo     open_shell.bat                  - prompt with ieda3130 env active
 echo ============================================================
 echo.
 pause

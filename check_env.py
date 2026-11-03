@@ -39,9 +39,18 @@ for pkg in ("numpy", "cv2", "mediapipe"):
         m = __import__(pkg)
         print(f"{pkg:<8}: OK  v{getattr(m, '__version__', '?')}")
     except Exception as e:
-        sys.exit(f"[fail] cannot import {pkg}: {e}\n"
-                 f"       -> python -m pip install -r requirements.txt\n"
-                 f"       (make sure your virtual environment is activated)")
+        sys.exit(
+            f"[fail] cannot import {pkg}: {e}\n"
+            f"       This Python interpreter does not have the demo's packages.\n"
+            f"       If you installed with Anaconda (Route A), activate the environment first:\n"
+            f"         open the Anaconda Prompt (Start menu) and run:  conda activate ieda3130\n"
+            f"       or double-click open_shell.bat in the project folder.\n"
+            f"       To make conda work in your own terminal, run once in Anaconda Prompt:\n"
+            f"         conda init cmd.exe        (Command Prompt)\n"
+            f"         conda init powershell     (PowerShell / VS Code)\n"
+            f"       then close and reopen that terminal.\n"
+            f"       Otherwise install the packages:  python -m pip install -r requirements.txt"
+        )
 
 import numpy as np
 import cv2

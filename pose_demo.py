@@ -48,18 +48,35 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:  # pragma: no cover - old Python / exotic stream
         pass
 
-import cv2
-import numpy as np
+HELP_ENV = (
+    "\nIf you installed with Anaconda (Route A), the usual cause is that the demo's\n"
+    "conda environment is not active in this terminal. Fix it in one of these ways:\n"
+    "  * Open the Anaconda Prompt from the Start menu, run:\n"
+    "        conda activate ieda3130\n"
+    "    then run the python command again; or\n"
+    "  * Double-click open_shell.bat in the project folder (it opens a Command\n"
+    "    Prompt with the environment already active); or\n"
+    "  * Enable conda in your own terminal once (in Anaconda Prompt):\n"
+    "        conda init cmd.exe      (Command Prompt)\n"
+    "        conda init powershell   (PowerShell / VS Code terminal)\n"
+    "    then close and reopen that terminal.\n"
+    "  * From scratch: python -m pip install -r requirements.txt\n"
+)
+
+try:
+    import cv2
+    import numpy as np
+except ImportError as e:  # wrong Python / environment not activated
+    sys.exit(f"OpenCV or numpy is not installed in this Python interpreter.\n"
+             f"Original error: {e}\n" + HELP_ENV)
 
 try:
     import mediapipe as mp
     from mediapipe.tasks import python as mp_python
     from mediapipe.tasks.python import vision as mp_vision
 except ImportError as e:  # pragma: no cover
-    sys.exit(
-        "mediapipe is not installed. Run:  python -m pip install -r requirements.txt\n"
-        f"Original error: {e}"
-    )
+    sys.exit("mediapipe is not installed in this Python interpreter.\n"
+             f"Original error: {e}\n" + HELP_ENV)
 
 try:  # keep the C++/absl loggers quiet for the work that happens after import
     import absl.logging

@@ -60,6 +60,27 @@ This is the same tool chain used in IEDA2100S Lab 8 (Object Detection).
 
 Press Start → search **Anaconda Prompt** → open it.
 
+> **Why does my normal terminal not know `conda` / `python`?**
+> Windows does not put Anaconda on the system PATH (on purpose — it would clash with other
+> Python installs), so in a plain **Command Prompt / PowerShell / VS Code terminal** you may see
+> `'conda' is not recognized` or `'python' was not found` (or the Microsoft Store opens).
+> Use one of these:
+>
+> 1. **Anaconda Prompt** (Start menu) — the recommended terminal, everything works there; or
+> 2. double-click **`open_shell.bat`** in the project folder — it opens a Command Prompt with
+>    the `ieda3130` environment already active, so you can type `python …` / `conda …` directly; or
+> 3. enable conda in your own terminal **once**, from the Anaconda Prompt:
+>
+>    ```bat
+>    conda init cmd.exe          REM makes conda work in Command Prompt
+>    conda init powershell       REM makes conda work in PowerShell / VS Code
+>    ```
+>
+>    then **close and reopen** that terminal and run `conda activate ieda3130`.
+>
+> Do **not** add Anaconda to the Windows PATH manually; `conda init` is the supported way.
+> Check with `where conda`, `conda --version`, `python --version`.
+
 **Step 2 · Get the code**
 
 ```bat
@@ -104,6 +125,9 @@ creates the environment, installs everything and runs the self-test), then:
 
 - `run_webcam.bat` — live camera demo
 - drag a photo file onto `run_image.bat` — single-photo measurement
+- `open_shell.bat` — opens a Command Prompt with the `ieda3130` environment active, for when
+  you want to type `python …` / `conda …` commands yourself (this is the answer to
+  "`conda` is not recognized" in a normal terminal)
 
 `environment.yml` is also provided if you prefer `conda env create -f environment.yml`.
 
@@ -367,8 +391,12 @@ indices 0-32) · `--no-show` (headless) · `--camera 1` (external webcam) ·
 | Symptom | Fix |
 |---|---|
 | `pip install mediapipe` finds no wheel | Use Python 3.9–3.14 (64-bit). mediapipe 1.2.0 ships a `py3-none-win_amd64` wheel plus macOS Apple-Silicon and Linux x64/ARM64 wheels. **Intel Mac**: `pip install "mediapipe<0.10.22"` with Python ≤ 3.12 (this workaround was NOT verified on this machine), or use the Colab notebook. |
-| `ModuleNotFoundError: cv2` / `mediapipe` | Activate the virtual environment first, then `python -m pip install -r requirements.txt`. If you used `python -m venv`, the venv's `python` must be used to run the script. |
-| `'conda' is not recognized` / setup script says Conda not found | Install Anaconda from <https://www.anaconda.com/download> (default options), then **close and reopen** the Anaconda Prompt / run `setup_windows.bat` again. |
+| `ModuleNotFoundError: cv2` / `mediapipe` | You are running a different Python than the one where the demo is installed (the conda environment is not active). Use the **Anaconda Prompt** with `conda activate ieda3130`, double-click **`open_shell.bat`**, or run `conda init cmd.exe` / `conda init powershell` once and reopen your terminal. |
+| `'conda' is not recognized` in Command Prompt / PowerShell / VS Code | Normal on Windows: Anaconda is not on the system PATH. Use the **Anaconda Prompt** (Start menu), double-click **`open_shell.bat`**, or enable it once from Anaconda Prompt: `conda init cmd.exe` (Command Prompt) and/or `conda init powershell` (PowerShell), then close and reopen that terminal and run `conda activate ieda3130`. Do not edit PATH manually. |
+| `python` opens the Microsoft Store, or `'python' was not found` | No Python is on the PATH (or the Store alias grabs it). Use the Anaconda Prompt / `open_shell.bat`, or turn off the alias: Settings → Apps → Advanced app settings → App execution aliases → switch off `python.exe` / `python3.exe`, then reopen the terminal. |
+| `conda activate` says "conda not initialized for this shell" | Run the matching one-time init in the Anaconda Prompt: `conda init cmd.exe`, `conda init powershell`, or `conda init bash` (Git Bash), then reopen the terminal. |
+| `where python` prints several unrelated paths | Your terminal is using another Python. With the environment active, `where python` should list first `…\anaconda3\envs\ieda3130\python.exe`. Use `open_shell.bat` if unsure. |
+| setup script says Conda not found | Install Anaconda from <https://www.anaconda.com/download> (default options), then **close and reopen** the Anaconda Prompt / run `setup_windows.bat` again. |
 | **macOS**: `conda: command not found` | Run `~/anaconda3/bin/conda init zsh` once (use `/opt/anaconda3` or `~/opt/anaconda3` for other install locations), then close and reopen Terminal. |
 | **macOS**: camera window stays black / no camera | System Settings → Privacy & Security → Camera → enable **Terminal**, then restart Terminal. |
 | **macOS**: cannot open `setup_mac.command` ("unidentified developer") | Right-click the file → **Open**, or run `bash setup_mac.command` in Terminal; once: `chmod +x *.command`. |
@@ -404,6 +432,7 @@ environment.yml                  optional Conda environment (one-command install
 setup_windows.bat                one-click Windows setup (finds Anaconda, installs everything)
 run_webcam.bat                   one-click Windows live-camera launcher
 run_image.bat                    one-click Windows single-photo launcher (drag a photo onto it)
+open_shell.bat                   opens a Command Prompt with the ieda3130 environment active
 setup_mac.command                one-click macOS setup (finds Anaconda, installs everything)
 run_webcam.command               one-click macOS live-camera launcher
 run_image.command                one-click macOS single-photo launcher (drag a photo onto it)
