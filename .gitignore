@@ -1,0 +1,6 @@
+models/*.task
+outputs/
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
