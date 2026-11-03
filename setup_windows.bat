@@ -36,12 +36,14 @@ if "%ENV_FOUND%"=="1" (
 )
 
 echo [info] Activating "ieda3130" ...
-call "%CONDA_ROOT%\Scripts\activate.bat" ieda3130
-if errorlevel 1 (
-    echo [ERROR] Could not activate the environment. Run this script again.
+if not exist "%CONDA_ROOT%\envs\ieda3130\python.exe" (
+    echo [ERROR] The environment was created but its Python was not found at:
+    echo         %CONDA_ROOT%\envs\ieda3130\python.exe
+    echo         Delete that folder if it is broken and run this script again.
     pause
     exit /b 1
 )
+call "%CONDA_ROOT%\Scripts\activate.bat" ieda3130
 
 echo [info] Installing Python packages - about 30 s, ~350 MB disk ...
 python -m pip install --disable-pip-version-check -r requirements.txt

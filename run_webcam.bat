@@ -10,13 +10,15 @@ if not defined CONDA_ROOT (
     pause
     exit /b 1
 )
-call "%CONDA_ROOT%\Scripts\activate.bat" ieda3130 >nul 2>nul
-if errorlevel 1 (
-    echo [ERROR] Conda environment "ieda3130" not found.
-    echo         Double-click setup_windows.bat first.
+if not exist "%CONDA_ROOT%\envs\ieda3130\python.exe" (
+    echo [ERROR] Conda environment "ieda3130" was not found in:
+    echo         %CONDA_ROOT%\envs\ieda3130
+    echo.
+    echo         Double-click setup_windows.bat first - it creates the environment.
     pause
     exit /b 1
 )
+call "%CONDA_ROOT%\Scripts\activate.bat" ieda3130 >nul 2>nul
 
 echo Starting the live pose demo ...
 echo Press S to save a snapshot, Q (or Esc) to quit the window.

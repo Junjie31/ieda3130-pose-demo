@@ -55,6 +55,13 @@ else
     conda create -n ieda3130 python=3.12 -y
 fi
 
+if [ ! -x "$CONDA_BASE/envs/ieda3130/bin/python" ]; then
+    echo "[ERROR] The environment 'ieda3130' was not found at $CONDA_BASE/envs/ieda3130."
+    echo "        Delete that folder if it is broken and run this script again."
+    read -r -p "Press Enter to close..."
+    exit 1
+fi
+
 echo "[info] Activating 'ieda3130' ..."
 conda activate ieda3130
 
