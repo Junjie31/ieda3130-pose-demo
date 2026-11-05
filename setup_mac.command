@@ -35,8 +35,12 @@ if ! find_conda; then
     echo
     echo "  1. Download the macOS installer from:"
     echo "       https://www.anaconda.com/download"
-    echo "     (pick the Apple Silicon or Intel installer that matches your Mac)"
+    echo "     Apple Silicon (M1 and later) only - Intel Macs have no official"
+    echo "     Anaconda installer any more; use Route B (python.org Python) or Colab."
     echo "  2. Double-click the downloaded .pkg and accept the default options."
+    echo "     The graphical installer puts Anaconda in /opt/anaconda3 and asks for"
+    echo "     an administrator password; the terminal .sh installer is admin-free"
+    echo "     and installs to ~/anaconda3. This script finds either location."
     echo "  3. Open a NEW Terminal window and double-click this file again."
     echo
     read -r -p "Press Enter to close..."
@@ -48,6 +52,12 @@ export PATH="$CONDA_BASE/bin:$PATH"
 # make `conda activate` work inside this script even if conda init was never run
 eval "$("$CONDA_BASE/bin/conda" shell.bash hook 2>/dev/null)" || true
 
+# Anaconda's Terms of Service must be accepted before `conda create` works with a
+# fresh 2025+ Anaconda installed from the terminal .sh installer (the graphical
+# .pkg accepts them automatically; these calls are harmless there).
+"$CONDA_BASE/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >/dev/null 2>&1 || true
+"$CONDA_BASE/bin/conda" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >/dev/null 2>&1 || true
+
 if conda env list 2>/dev/null | awk '{print $1}' | grep -qx "ieda3130"; then
     echo "[ok] Conda environment 'ieda3130' already exists."
 else
@@ -55,9 +65,10 @@ else
     conda create -n ieda3130 python=3.12 -y
 fi
 
-if [ ! -x "$CONDA_BASE/envs/ieda3130/bin/python" ]; then
-    echo "[ERROR] The environment 'ieda3130' was not found at $CONDA_BASE/envs/ieda3130."
-    echo "        Delete that folder if it is broken and run this script again."
+if ! conda env list 2>/dev/null | awk '{print $1}' | grep -qx "ieda3130"; then
+    echo "[ERROR] The environment 'ieda3130' was not created."
+    echo "        Run this script again; if it keeps failing, create it by hand:"
+    echo "            conda create -n ieda3130 python=3.12 -y"
     read -r -p "Press Enter to close..."
     exit 1
 fi
@@ -77,6 +88,8 @@ echo "  Setup complete!"
 echo "    Double-click run_webcam.command      - live camera demo"
 echo "    Drag a photo onto run_image.command  - single photo demo"
 echo "    To type commands yourself: open Terminal and run:  conda activate ieda3130"
+echo "    No admin rights / no Anaconda? Use the Colab notebook instead:"
+echo "      https://colab.research.google.com/github/Junjie31/ieda3130-pose-demo/blob/main/IEDA3130_Pose_Demo_Colab.ipynb"
 echo
 echo "  First live run: allow camera access for Terminal when macOS asks,"
 echo "  or enable it in System Settings > Privacy & Security > Camera."

@@ -10,10 +10,9 @@ if not defined CONDA_ROOT (
     pause
     exit /b 1
 )
-if not exist "%CONDA_ROOT%\envs\ieda3130\python.exe" (
-    echo [ERROR] Conda environment "ieda3130" was not found in:
-    echo         %CONDA_ROOT%\envs\ieda3130
-    echo.
+call "%CONDA_BAT%" run -n ieda3130 python --version >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] Conda environment "ieda3130" was not found.
     echo         Double-click setup_windows.bat first - it creates the environment.
     pause
     exit /b 1
@@ -44,5 +43,12 @@ for %%R in (
     "C:\Miniconda3"
 ) do (
     if not defined CONDA_ROOT if exist "%%~R\Scripts\activate.bat" set "CONDA_ROOT=%%~R"
+)
+if defined CONDA_ROOT (
+    if exist "%CONDA_ROOT%\condabin\conda.bat" (
+        set "CONDA_BAT=%CONDA_ROOT%\condabin\conda.bat"
+    ) else (
+        set "CONDA_BAT=%CONDA_ROOT%\Scripts\conda.exe"
+    )
 )
 exit /b 0

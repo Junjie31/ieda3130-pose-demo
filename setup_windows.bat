@@ -27,6 +27,8 @@ if "%ENV_FOUND%"=="1" (
     echo [ok] Conda environment "ieda3130" already exists.
 ) else (
     echo [info] Creating Conda environment "ieda3130" with Python 3.12 ...
+    call "%CONDA_BAT%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >nul 2>nul
+    call "%CONDA_BAT%" tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >nul 2>nul
     call "%CONDA_BAT%" create -n ieda3130 python=3.12 -y
     if errorlevel 1 (
         echo [ERROR] Could not create the Conda environment. See the messages above.
@@ -36,10 +38,11 @@ if "%ENV_FOUND%"=="1" (
 )
 
 echo [info] Activating "ieda3130" ...
-if not exist "%CONDA_ROOT%\envs\ieda3130\python.exe" (
-    echo [ERROR] The environment was created but its Python was not found at:
-    echo         %CONDA_ROOT%\envs\ieda3130\python.exe
-    echo         Delete that folder if it is broken and run this script again.
+call "%CONDA_BAT%" run -n ieda3130 python --version >nul 2>nul
+if errorlevel 1 (
+    echo [ERROR] The environment "ieda3130" was not created or is broken.
+    echo         Run this script again, or create it by hand:
+    echo             conda create -n ieda3130 python=3.12 -y
     pause
     exit /b 1
 )
